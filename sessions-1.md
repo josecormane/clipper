@@ -89,3 +89,42 @@ La solución principal fue abandonar el enfoque de una sola llamada a la IA y ad
 1.  **Patrón de "Divide y Vencerás" para Tareas de IA Largas:** Para cualquier tarea que pueda exceder los límites de tokens de un modelo de IA (análisis de documentos largos, videos, etc.), la arquitectura debe basarse en un patrón de "chunking". Un orquestador debe dividir la tarea, llamar a la IA para cada chunk y luego agregar los resultados.
 2.  **La Especificidad del Prompt es Relativa:** La efectividad de un prompt depende del "instinto" del modelo. Si un modelo tiende a generalizar, pedirle explícitamente que piense en múltiples niveles de detalle (temas y cortes) pero que solo devuelva el nivel más granular puede forzarlo a producir el resultado deseado.
 3.  **Hacer los Esquemas de Salida Flexibles:** Cuando se depende de una salida de IA, hacer que los campos no críticos sean opcionales (ej. `summary`) aumenta la robustez de la aplicación y evita fallos por validación de datos.
+
+---
+# Sesión 3: Implementación de Persistencia y Refactorización del Flujo de Usuario
+
+## Objetivos Principales
+
+1.  Transformar la herramienta en una aplicación con estado, "Machete", donde los proyectos se guardan.
+2.  Implementar la subida de videos y la creación de proyectos a través de una base de datos (Firestore) y almacenamiento de archivos (Google Cloud Storage).
+3.  Resolver una cascada de errores de configuración de Firebase, Google Cloud y Next.js.
+
+## Hallazgos Críticos
+
+1.  **Errores de Configuración de Firebase/GCS:** La mayor parte de la sesión se dedicó a un debugging profundo de la infraestructura en la nube:
+    *   **CORS (Cross-Origin Resource Sharing):** La subida directa de archivos desde el navegador a GCS fallaba porque el bucket no tenía las cabeceras CORS correctas para aceptar solicitudes `PUT` y `OPTIONS`.
+    *   **APIs Deshabilitadas:** Se descubrió que las APIs de **Cloud Firestore** y **Cloud KMS** no estaban habilitadas en el proyecto de Google Cloud, lo que causaba errores de `PERMISSION_DENIED`.
+    *   **Políticas de Organización (CMEK):** El proyecto inicial estaba bajo una política de organización que requería Claves de Cifrado Gestionadas por el Cliente (CMEK), pero el proyecto no tenía los permisos para usarlas, creando un callejón sin salida que nos obligó a crear un nuevo proyecto de Firebase.
+    *   **Credenciales del Servidor (`service-account-key.json`):** Hubo múltiples fallos relacionados con la carga de las credenciales de la cuenta de servicio, lo que impedía que las acciones del servidor se autenticaran correctamente para firmar URLs o interactuar con GCS. El problema se resolvió leyendo el archivo JSON directamente desde el sistema de archivos en lugar de depender de variables de entorno.
+2.  **Serialización de Datos del Servidor al Cliente:** Un error `Only plain objects can be passed to Client Components` reveló que los objetos `Timestamp` de Firestore no pueden ser pasados directamente del servidor al cliente y deben ser convertidos a un formato simple (como un string ISO) antes de ser enviados.
+3.  **Flujo de Usuario Inconsistente:** Se identificó que el análisis automático al subir el video no era el flujo deseado. Se rediseñó para que el usuario tuviera control explícito sobre cuándo iniciar el proceso de análisis.
+4.  **Bugs de Usabilidad:** Se identificaron problemas en la interfaz, como la falta de generación de thumbnails y la reproducción incorrecta en el timeline, que degradaban la experiencia de usuario.
+
+## Soluciones Implementadas
+
+1.  **Refactorización Completa del Flujo de Creación de Proyectos:**
+    *   **Subida Directa a GCS:** Se implementó un flujo de dos pasos donde el cliente primero solicita una URL firmada al servidor y luego sube el archivo directamente a GCS, mejorando drásticamente la velocidad de subida.
+    *   **Separación de Creación y Análisis:** La acción `createProject` ahora solo crea el registro en Firestore, y una nueva acción `analyzeProject` se encarga del análisis, dándole el control al usuario.
+2.  **Configuración de Infraestructura:**
+    *   Se creó y aplicó un archivo `cors.json` para permitir la subida directa al bucket de GCS.
+    *   Se documentó el proceso para habilitar las APIs necesarias y crear las bases de datos de Firestore y Storage.
+    *   Se implementó una solución robusta para cargar las credenciales de la cuenta de servicio leyendo el archivo JSON directamente.
+3.  **Corrección de Errores de Serialización y Tipado:**
+    *   Se crearon funciones `serializeProject` para convertir los Timestamps de Firestore a strings antes de enviarlos al cliente.
+    *   Se corrigieron múltiples errores de tipado de TypeScript que impedían la compilación.
+4.  **Flujo de Análisis Asíncrono con Polling:** La página del editor ahora sondea periódicamente el estado del proyecto para actualizar la UI automáticamente cuando el análisis en segundo plano finaliza.
+
+## Estado Actual del Proyecto
+
+*   **Funcional:** La subida de videos, la creación de proyectos y el análisis de escenas son funcionales. Los datos persisten en Firestore y GCS.
+*   **Problemas Pendientes (Usabilidad):** La interfaz todavía tiene problemas significativos que necesitan ser abordados, como la generación de thumbnails y la interactividad del timeline.
