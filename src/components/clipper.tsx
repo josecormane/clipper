@@ -94,12 +94,11 @@ export function Clipper() {
       });
     } else {
       setSummary(result.summary ?? "No summary generated.");
-      // Mock scenes as the AI flow only provides a summary
-      setScenes([
-        { id: 1, startTime: "00:00:05", endTime: "00:00:15", description: "Opening shot of the landscape.", thumbnail: "https://placehold.co/160x90.png?text=Scene+1",},
-        { id: 2, startTime: "00:00:22", endTime: "00:00:45", description: "Main character introduction.", thumbnail: "https://placehold.co/160x90.png?text=Scene+2",},
-        { id: 3, startTime: "00:01:02", endTime: "00:01:18", description: "Climactic action sequence.", thumbnail: "https://placehold.co/160x90.png?text=Scene+3",},
-      ]);
+      const scenesWithIds = (result.scenes ?? []).map((scene, index) => ({
+        ...scene,
+        id: index + 1,
+      }));
+      setScenes(scenesWithIds);
        toast({
         title: "Analysis Complete",
         description: "Video summary and scenes are ready.",

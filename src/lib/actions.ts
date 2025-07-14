@@ -1,4 +1,4 @@
-"use server";
+'use server';
 
 import { generateVideoDescription, GenerateVideoDescriptionInput } from "@/ai/flows/generate-video-description";
 import { z } from "zod";
@@ -16,7 +16,7 @@ export async function getVideoSummary(input: GenerateVideoDescriptionInput) {
 
   try {
     const result = await generateVideoDescription(parsedInput.data);
-    return { summary: result.summary };
+    return { summary: result.summary, scenes: result.scenes };
   } catch (e) {
     console.error("Error in generateVideoDescription flow:", e);
     // This could be a more user-friendly error message.
