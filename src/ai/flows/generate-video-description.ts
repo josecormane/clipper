@@ -1,108 +1,87 @@
 'use server';
 
 /**
- * @fileOverview An AI agent that generates a descriptive summary and identifies scenes in a video clip.
- *
- * - generateVideoDescription - A function that generates a summary and scenes from a video clip.
- * - GenerateVideoDescriptionInput - The input type for the generateVideoDescription function.
- * - GenerateVideoDescriptionOutput - The return type for the generateVideoDescription function.
+ * @fileOverview This file implements the video analysis workflow.
+ * The process is designed to handle long videos by breaking them into manageable chunks,
+ * analyzing each chunk individually, and then aggregating the results.
  */
 
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
 
-const GenerateVideoDescriptionInputSchema = z.object({
+// Input schema for the video chunk processing task.
+const ProcessVideoChunkInputSchema = z.object({
   videoDataUri: z
     .string()
     .describe(
-      "A video clip, as a data URI that must include a MIME type and use Base64 encoding. Expected format: 'data:<mimetype>;base64,<encoded_data>'."
+      "A video clip chunk, as a data URI that must include a MIME type and use Base64 encoding."
     ),
 });
-export type GenerateVideoDescriptionInput = z.infer<typeof GenerateVideoDescriptionInputSchema>;
 
-// Schema for a single, granular visual shot.
+// Schema for a single, granular visual shot (a "scene" in our UI).
 const ShotSchema = z.object({
   startTime: z.string().describe('The start time of the visual shot in HH:MM:SS.mmm format.'),
   endTime: z.string().describe('The end time of the visual shot in HH:MM:SS.mmm format.'),
-  description: z.string().describe('A purely visual, objective description of ONLY what is visible in this specific shot (e.g., "A person is typing on a laptop.").'),
+  description: z.string().describe('A very brief, telegraphic-style description of the visual content (e.g., "man at computer," "robots playing soccer").'),
 });
 
-// The final output we want for our application is a flat list of all shots.
-// The `summary` is now optional to prevent validation errors if the model omits it.
-const GenerateVideoDescriptionOutputSchema = z.object({
-  summary: z.string().optional().describe('A high-level summary of the entire video clip.'),
-  scenes: z.array(ShotSchema).describe('A flattened array of every single visual shot from the entire video.'),
-});
-
-export type GenerateVideoDescriptionOutput = z.infer<typeof GenerateVideoDescriptionOutputSchema>;
-
-export async function generateVideoDescription(
-  input: GenerateVideoDescriptionInput
-): Promise<GenerateVideoDescriptionOutput> {
-  return generateVideoDescriptionFlow(input);
-}
-
-// Per best practices, the {{media}} block is now at the beginning of the prompt.
+// The prompt text is now focused on analyzing a single video chunk.
 const PROMPT_TEXT = `Video: {{media url=videoDataUri}}
 
-You are a meticulous video editor's assistant. Your task is to deconstruct the provided video into a granular list of every single visual cut.
+You are a meticulous video editor's assistant. Your task is to deconstruct the provided video clip into a granular list of every single visual cut it contains.
 
-You will perform a two-level analysis. First, you will identify broad thematic scenes. Second, within each theme, you will identify every individual visual shot.
+IMPORTANT: The video provided is a short chunk of a much longer video. Your analysis must be confined to this chunk only.
 
-IMPORTANT: Your final JSON output MUST be a single, flat list of all visual shots. Do NOT nest the shots inside themes in the output.
+Format your response as a JSON object with a single key: "scenes".
+The "scenes" key must contain an array of all the visual shots you identified in this chunk, in chronological order.
 
-Follow these steps:
-1.  **Generate a high-level summary:** Create a one-sentence summary of the video's overall content. This is an optional field.
-2.  **Perform the two-level analysis:**
-    a. **Identify Thematic Scenes:** Go through the video and identify the major topics or themes (e.g., "Introduction to AI Surgery," "Robot Football Match," "Amazon's Warehouse Automation").
-    b. **Identify Visual Shots:** For each thematic scene, meticulously list every single visual cut. A new shot begins with every hard cut, change of camera angle, or transition to a different visual asset (like B-roll or a graphic).
-3.  **Format the Final Output:**
-    -  The 'summary' key should contain your high-level summary. If you can't generate one, you can omit this key.
-    -  The 'scenes' key must contain a single, flat array of ALL the visual shots you identified, in chronological order.
-    -  For each shot in the 'scenes' array, provide:
-        -  \`startTime\` and \`endTime\` in precise \`HH:MM:SS.mmm\` format.
-        -  A very brief, telegraphic-style description of the visual content (e.g., "man at computer," "robots playing soccer," "close-up on screen"). Use as few words as possible.
+For each shot in the 'scenes' array, provide:
+- \`startTime\` and \`endTime\` in precise \`HH:MM:SS.mmm\` format, relative to the start of THIS CHUNK.
+- A very brief, telegraphic-style description of the visual content (e.g., "man at computer," "robots playing soccer," "close-up on screen"). Use as few words as possible.
 
-Analyze the entire video. Do not truncate your analysis. Your token limit is high.`;
+Do not create a "summary". Your entire response should be the JSON object.`;
 
-const prompt = ai.definePrompt({
-  name: 'generateVideoDescriptionPrompt',
-  input: {schema: GenerateVideoDescriptionInputSchema},
-  output: {schema: GenerateVideoDescriptionOutputSchema},
-  prompt: PROMPT_TEXT,
-  config: {
-    maxOutputTokens: 8192,
-  },
-});
 
-const generateVideoDescriptionFlow = ai.defineFlow(
+/**
+ * A reusable prompt definition for analyzing a single video chunk.
+ */
+const videoChunkAnalysisPrompt = ai.definePrompt(
   {
-    name: 'generateVideoDescriptionFlow',
-    inputSchema: GenerateVideoDescriptionInputSchema,
-    outputSchema: GenerateVideoDescriptionOutputSchema,
+    name: 'videoChunkAnalysisPrompt',
+    input: { schema: ProcessVideoChunkInputSchema },
+    output: {
+      schema: z.object({ scenes: z.array(ShotSchema) }),
+    },
+    prompt: PROMPT_TEXT,
+    config: { maxOutputTokens: 8192 },
+  }
+);
+
+
+/**
+ * A Genkit flow designed to analyze a single chunk of video.
+ */
+export const processVideoChunkFlow = ai.defineFlow(
+  {
+    name: 'processVideoChunkFlow',
+    inputSchema: ProcessVideoChunkInputSchema, 
+    outputSchema: z.object({ scenes: z.array(ShotSchema) }),
   },
-  async input => {
-    // Log the prompt being used to be sure of the version.
-    console.log('=============== PROMPT SENT TO GEMINI ===============');
-    console.log(PROMPT_TEXT);
-    console.log('=====================================================');
+  async (input) => {
+    console.log('=============== PROMPT SENT TO GEMINI FOR CHUNK ===============');
+    console.log(PROMPT_TEXT.substring(0, 500) + '...');
+    console.log('===========================================================');
+    
+    // Call the pre-defined prompt correctly.
+    const { output } = await videoChunkAnalysisPrompt(input);
 
-    try {
-      const {output} = await prompt(input);
-      
-      console.log('=============== RESPONSE FROM GEMINI ===============');
-      console.log(JSON.stringify(output, null, 2));
-      console.log('====================================================');
+    console.log(`=============== RESPONSE FROM GEMINI FOR CHUNK (Found ${output?.scenes.length || 0} scenes) ===============`);
 
-      if (!output) {
-        console.error('Gemini returned a null or undefined output.');
-        return { summary: "Error: Failed to get a response from the AI.", scenes: [] };
-      }
-      
-      return output;
-    } catch (e) {
-      console.error('Error during prompt execution:', e);
-      return { summary: `Error: An exception occurred during AI processing. Details: ${e instanceof Error ? e.message : String(e)}`, scenes: [] };
+    if (!output) {
+      console.error('Gemini returned a null or undefined output for the chunk.');
+      return { scenes: [] };
     }
+    
+    return output;
   }
 );

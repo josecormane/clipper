@@ -2,12 +2,11 @@
 
 import Image from "next/image";
 import { useState, useEffect, RefObject } from "react";
-import { Card, CardContent, CardFooter } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { Download, Clock, Play, Loader2, RefreshCw } from "lucide-react";
-import { clipVideo } from "@/lib/actions";
+import { Clock, Play, RefreshCw, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { timeStringToSeconds, captureFrame } from "@/lib/utils";
 
@@ -16,13 +15,12 @@ type Scene = {
   startTime: string;
   endTime: string;
   description: string;
-  thumbnail: string;
+  thumbnail?: string;
 };
 
 interface SceneCardProps {
   scene: Scene;
   onUpdate: (scene: Scene) => void;
-  videoDataUri: string | null;
   videoRef: RefObject<HTMLVideoElement>;
   onPreview: (scene: Scene) => void;
 }
@@ -30,17 +28,15 @@ interface SceneCardProps {
 export function SceneCard({
   scene,
   onUpdate,
-  videoDataUri,
   videoRef,
   onPreview,
 }: SceneCardProps) {
-  const [isDownloading, setIsDownloading] = useState(false);
   const [isUpdatingThumbnail, setIsUpdatingThumbnail] = useState(false);
-  const [currentThumbnail, setCurrentThumbnail] = useState(scene.thumbnail);
+  const [currentThumbnail, setCurrentThumbnail] = useState(scene.thumbnail || "https://placehold.co/160x90.png");
   const { toast } = useToast();
 
   useEffect(() => {
-    setCurrentThumbnail(scene.thumbnail);
+    setCurrentThumbnail(scene.thumbnail || "https://placehold.co/160x90.png");
   }, [scene.thumbnail]);
 
   const handleTimeChange = (field: "startTime" | "endTime", value: string) => {
@@ -48,70 +44,48 @@ export function SceneCard({
   };
 
   const updateThumbnail = async () => {
-    if (!videoRef.current) return;
+    if (!videoRef.current) {
+        toast({ variant: "destructive", title: "Video player not available." });
+        return;
+    }
+
+    // readyState < 2 means the video doesn't have enough data to play or seek.
+    if (videoRef.current.readyState < 2) {
+        toast({
+            variant: "destructive",
+            title: "Video Not Ready",
+            description: "Please wait for the video to load before generating a thumbnail.",
+        });
+        return;
+    }
+
     setIsUpdatingThumbnail(true);
     try {
       const startTime = timeStringToSeconds(scene.startTime);
       const frameDataUri = await captureFrame(videoRef.current, startTime);
+      
       setCurrentThumbnail(frameDataUri);
+      // Persist the new thumbnail to the database via the onUpdate callback.
+      onUpdate({ ...scene, thumbnail: frameDataUri });
+
       toast({
         title: "Thumbnail Updated",
-        description: "The preview image has been refreshed.",
+        description: "The new thumbnail has been generated and saved.",
       });
     } catch (error) {
       console.error("Failed to update thumbnail:", error);
        toast({
         variant: "destructive",
         title: "Update Failed",
-        description: "Could not refresh the thumbnail.",
+        description: "Could not refresh the thumbnail. Check console for details.",
       });
     } finally {
       setIsUpdatingThumbnail(false);
     }
   };
-
-  const handleDownload = async () => {
-    if (!videoDataUri) {
-      toast({
-        variant: "destructive",
-        title: "Video data not found",
-        description: "Cannot download clip without the original video.",
-      });
-      return;
-    }
-
-    setIsDownloading(true);
-    const fileName = `clip_${scene.id}_${scene.startTime.replace(/:/g, "-")}_${scene.endTime.replace(/:/g, "-")}.mp4`;
-    const result = await clipVideo({
-      videoDataUri,
-      startTime: scene.startTime,
-      endTime: scene.endTime,
-      fileName,
-    });
-    setIsDownloading(false);
-
-    if (result.error) {
-      toast({
-        variant: "destructive",
-        title: "Clipping Failed",
-        description: result.error,
-      });
-    } else if (result.clipDataUri) {
-      const link = document.createElement("a");
-      link.href = result.clipDataUri;
-      link.download = fileName;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      toast({
-        title: "Download Started",
-        description: "Your video clip is downloading.",
-      });
-    }
-  };
-
+  
   return (
-    <Card className="overflow-hidden bg-card/80 backdrop-blur-sm">
+    <Card className="overflow-hidden bg-card/80 backdrop-blur-sm w-full">
       <div className="grid grid-cols-3 gap-4">
         <div className="col-span-1 relative group cursor-pointer" onClick={() => onPreview(scene)}>
           <Image
@@ -120,6 +94,7 @@ export function SceneCard({
             width={160}
             height={90}
             className="object-cover w-full h-full"
+            unoptimized // Useful for external URLs like placehold.co and data URIs
           />
            <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
               <Play className="h-8 w-8 text-white" />
@@ -159,7 +134,6 @@ export function SceneCard({
                     handleTimeChange("startTime", e.target.value)
                   }
                   className="h-8"
-                  disabled={isDownloading}
                   step="0.001"
                 />
               </div>
@@ -176,7 +150,6 @@ export function SceneCard({
                   value={scene.endTime}
                   onChange={(e) => handleTimeChange("endTime", e.target.value)}
                   className="h-8"
-                  disabled={isDownloading}
                   step="0.001"
                 />
               </div>
@@ -184,22 +157,6 @@ export function SceneCard({
           </CardContent>
         </div>
       </div>
-      <CardFooter className="bg-muted/30 px-4 py-2 flex justify-end">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="text-accent hover:text-accent hover:bg-accent/10"
-          onClick={handleDownload}
-          disabled={isDownloading}
-        >
-          {isDownloading ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <Download className="mr-2 h-4 w-4" />
-          )}
-          {isDownloading ? "Clipping..." : "Download"}
-        </Button>
-      </CardFooter>
     </Card>
   );
 }

@@ -6,22 +6,28 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export const timeStringToSeconds = (time: string): number => {
-  // Supports HH:MM:SS.mmm and HH:MM:SS
   const parts = time.split(':');
   let seconds = 0;
   
   if (parts.length === 3) {
-    seconds += Number(parts[0]) * 3600; // hours
-    seconds += Number(parts[1]) * 60;   // minutes
-    seconds += Number(parts[2]);        // seconds (can have milliseconds)
+    seconds += Number(parts[0]) * 3600;
+    seconds += Number(parts[1]) * 60;
+    seconds += Number(parts[2]);
   } else if (parts.length === 2) {
-    seconds += Number(parts[0]) * 60;   // minutes
-    seconds += Number(parts[1]);        // seconds
+    seconds += Number(parts[0]) * 60;
+    seconds += Number(parts[1]);
   } else if (parts.length === 1) {
-    seconds += Number(parts[0]);        // seconds
+    seconds += Number(parts[0]);
   }
   
   return seconds;
+};
+
+export const secondsToTimeString = (totalSeconds: number): string => {
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${seconds.toFixed(3).padStart(6, '0')}`;
 };
 
 export async function captureFrame(videoElement: HTMLVideoElement, time: number): Promise<string> {
