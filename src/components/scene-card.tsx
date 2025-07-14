@@ -46,6 +46,13 @@ export function SceneCard({ scene, onUpdate, videoDataUri }: SceneCardProps) {
 
     const fileName = `clip_${scene.id}_${scene.startTime.replace(/:/g, '-')}_${scene.endTime.replace(/:/g, '-')}.mp4`;
 
+    console.log("Clipping with the following data:", {
+      videoDataUri: videoDataUri.substring(0, 30) + '...', // Don't log the whole huge string
+      startTime: scene.startTime,
+      endTime: scene.endTime,
+      fileName,
+    });
+
     const result = await clipVideo({
       videoDataUri,
       startTime: scene.startTime,
@@ -56,6 +63,7 @@ export function SceneCard({ scene, onUpdate, videoDataUri }: SceneCardProps) {
     setIsDownloading(false);
 
     if (result.error) {
+      console.error("Clipping failed with error:", result.error);
       toast({
         variant: "destructive",
         title: "Clipping Failed",

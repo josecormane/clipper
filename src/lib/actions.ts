@@ -6,15 +6,9 @@ import {
 } from '@/ai/flows/generate-video-description';
 import { z } from 'zod';
 import ffmpeg from 'fluent-ffmpeg';
-import ffmpegStatic from 'ffmpeg-static';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-
-if (ffmpegStatic) {
-  ffmpeg.setFfmpegPath(ffmpegStatic);
-}
-
 
 const videoSummarySchema = z.object({
   videoDataUri: z
@@ -116,7 +110,9 @@ export async function clipVideo(input: {
       await fs.promises.unlink(inputPath);
       await fs.promises.unlink(outputPath);
     } catch (cleanupError) {
-      console.error('Error cleaning up temp files:', cleanupError);
+       if ((cleanupError as NodeJS.ErrnoException).code !== 'ENOENT') {
+        console.error('Error cleaning up temp files:', cleanupError);
+      }
     }
   }
 }
