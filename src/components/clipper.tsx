@@ -49,6 +49,7 @@ async function captureFrame(videoElement: HTMLVideoElement, time: number): Promi
   return new Promise((resolve, reject) => {
     const onSeeked = () => {
       videoElement.removeEventListener('seeked', onSeeked);
+      videoElement.removeEventListener('error', onError);
       const canvas = document.createElement('canvas');
       canvas.width = videoElement.videoWidth;
       canvas.height = videoElement.videoHeight;
@@ -59,7 +60,13 @@ async function captureFrame(videoElement: HTMLVideoElement, time: number): Promi
       ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
       resolve(canvas.toDataURL('image/jpeg', 0.9));
     };
+     const onError = (e: Event) => {
+      videoElement.removeEventListener('seeked', onSeeked);
+      videoElement.removeEventListener('error', onError);
+      reject(new Error('Error seeking video to capture frame.'));
+    }
     videoElement.addEventListener('seeked', onSeeked);
+    videoElement.addEventListener('error', onError);
     videoElement.currentTime = time;
   });
 }
@@ -133,13 +140,13 @@ export function Clipper() {
           });
 
           if (thumbnailResult.error) {
-              throw new Error(thumbnailResult.error);
+              console.error("Error generating thumbnail for scene:", scene.description, thumbnailResult.error);
+              scenesWithThumbnails.push({ ...scene, id: index + 1, thumbnail: 'https://placehold.co/160x90.png' });
+          } else {
+             scenesWithThumbnails.push({ ...scene, id: index + 1, thumbnail: thumbnailResult.thumbnail });
           }
-          
-          scenesWithThumbnails.push({ ...scene, id: index + 1, thumbnail: thumbnailResult.thumbnail });
-
         } catch (e) {
-            console.error(`Error generating thumbnail for scene: ${scene.description}`, e);
+            console.error(`Error processing thumbnail for scene: ${scene.description}`, e);
             scenesWithThumbnails.push({ ...scene, id: index + 1, thumbnail: 'https://placehold.co/160x90.png' });
         }
         // Update state progressively
