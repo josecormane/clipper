@@ -6,12 +6,15 @@ import {
 } from '@/ai/flows/generate-video-description';
 import { z } from 'zod';
 import ffmpeg from 'fluent-ffmpeg';
-import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
+import ffmpegStatic from 'ffmpeg-static';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
-ffmpeg.setFfmpegPath(ffmpegInstaller.path);
+if (ffmpegStatic) {
+  ffmpeg.setFfmpegPath(ffmpegStatic);
+}
+
 
 const videoSummarySchema = z.object({
   videoDataUri: z
