@@ -40,3 +40,52 @@ La solución definitiva fue eliminar la dependencia problemática (`ffmpeg-stati
 
 1.  **Priorizar Dependencias de Entorno sobre Wrappers de NPM:** Para herramientas de línea de comandos críticas (como `ffmpeg`), es más fiable y robusto instalarlas directamente en el entorno de ejecución (vía Nix, Dockerfile, etc.) en lugar de confiar en paquetes "wrapper" de npm. Esto evita problemas de resolución de rutas en entornos de build complejos como el de Next.js.
 2.  **Metodología de Debugging Sistemático:** El proceso de ir desde el cliente (`console.log`) al servidor (`console.log`), y luego analizar los logs específicos del error (`stderr` de ffmpeg), fue clave para aislar el problema de manera eficiente.
+
+---
+# Sesión 2: Refactorización a una Arquitectura de "Chunking" para Videos Largos
+
+## Objetivos Principales
+
+1.  Resolver el problema de la IA proveyendo resúmenes temáticos en lugar de un desglose granular de cortes visuales.
+2.  Diagnosticar y solucionar los fallos de agotamiento de tokens que ocurrían con videos de más de 5 minutos.
+3.  Implementar una arquitectura robusta y escalable para el análisis de video.
+
+## Hallazgos Críticos
+
+1.  **Ambigüedad del Prompt:** El término "escena" era interpretado por el modelo de IA a un nivel temático. A pesar de múltiples refinamientos del prompt, el modelo tendía a agrupar varios cortes visuales bajo un solo tema.
+2.  **Límite de Tokens de Salida:** Se confirmó que el modelo de IA, incluso con un límite de 8192 tokens, no podía generar una respuesta JSON completa para videos largos y detallados. La respuesta se cortaba a mitad de camino, resultando en un JSON inválido y un fallo de validación del esquema (Zod).
+3.  **Errores de Configuración de Genkit:** Durante el proceso, se identificaron y corrigieron varios errores de configuración en la definición de los prompts de Genkit, como el uso incorrecto de la propiedad `model` en lugar de `config` para `maxOutputTokens`, y la definición "inline" de prompts con nombre, lo que causaba errores `NOT_FOUND`.
+
+## Soluciones Implementadas
+
+La solución principal fue abandonar el enfoque de una sola llamada a la IA y adoptar una arquitectura de "Divide y Vencerás" (chunking).
+
+1.  **Refactorización del Flujo de Genkit:** El flujo `generateVideoDescription` fue refactorizado y renombrado a `processVideoChunkFlow`. Su única responsabilidad ahora es analizar un único "chunk" (trozo) de video y devolver una lista de los cortes visuales que contiene. Se le añadió un sistema de **cacheo** para evitar volver a procesar chunks idénticos.
+2.  **Creación de un Orquestador:** La función `getVideoSummary` en `src/lib/actions.ts` fue convertida en un orquestador. Ahora realiza las siguientes tareas:
+    *   **Obtiene la duración del video** usando `ffprobe`.
+    *   **Divide el video en chunks** de 5 minutos en un bucle.
+    *   Para cada chunk, **corta el video usando `ffmpeg`** en el servidor.
+    *   **Llama al flujo `processVideoChunkFlow`** con el chunk de video.
+    *   **Ajusta los timestamps** de las escenas devueltas para que sean relativos al video completo.
+    *   **Agrega los resultados** de todos los chunks en una sola lista final.
+3.  **Robustez del Esquema Zod:** La propiedad `summary` en el esquema de salida se hizo opcional (`z.string().optional()`) para evitar que la aplicación falle si el modelo de IA omite este campo.
+4.  **Mejora Continua del Prompt:** Se refinó el prompt para el chunk, instruyendo explícitamente al modelo a usar descripciones "telegráficas" y muy breves para minimizar el uso de tokens y maximizar la cantidad de video que se puede analizar.
+
+## Archivos Creados/Modificados
+
+*   **`src/ai/flows/generate-video-description.ts` (Modificado):** Se refactorizó completamente para crear y exportar `processVideoChunkFlow`, especializado en el análisis de chunks individuales y con cacheo habilitado.
+*   **`src/lib/actions.ts` (Modificado):** Se reescribió la función `getVideoSummary` para actuar como un orquestador que gestiona el proceso de chunking.
+*   **`sessions-1.md` (Modificado):** Se añadió esta segunda sesión.
+*   **`instructions.md` (Modificado):** Se añadió una nueva regla arquitectónica sobre el manejo de tareas de IA de larga duración.
+
+## Resultados Medibles
+
+*   La aplicación ahora puede **procesar videos de cualquier duración** sin fallar por agotamiento de tokens.
+*   El sistema es más **robusto y resiliente** a respuestas incompletas de la IA.
+*   La arquitectura ahora es **escalable** y sigue las mejores prácticas para interactuar con modelos de lenguaje grandes en tareas intensivas.
+
+## Lecciones/Patrones Críticos Establecidos
+
+1.  **Patrón de "Divide y Vencerás" para Tareas de IA Largas:** Para cualquier tarea que pueda exceder los límites de tokens de un modelo de IA (análisis de documentos largos, videos, etc.), la arquitectura debe basarse en un patrón de "chunking". Un orquestador debe dividir la tarea, llamar a la IA para cada chunk y luego agregar los resultados.
+2.  **La Especificidad del Prompt es Relativa:** La efectividad de un prompt depende del "instinto" del modelo. Si un modelo tiende a generalizar, pedirle explícitamente que piense en múltiples niveles de detalle (temas y cortes) pero que solo devuelva el nivel más granular puede forzarlo a producir el resultado deseado.
+3.  **Hacer los Esquemas de Salida Flexibles:** Cuando se depende de una salida de IA, hacer que los campos no críticos sean opcionales (ej. `summary`) aumenta la robustez de la aplicación y evita fallos por validación de datos.
