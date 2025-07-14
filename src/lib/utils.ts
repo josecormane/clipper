@@ -6,14 +6,22 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export const timeStringToSeconds = (time: string): number => {
-  const parts = time.split(':').map(Number);
+  // Supports HH:MM:SS.mmm and HH:MM:SS
+  const parts = time.split(':');
+  let seconds = 0;
+  
   if (parts.length === 3) {
-    return parts[0] * 3600 + parts[1] * 60 + parts[2];
+    seconds += Number(parts[0]) * 3600; // hours
+    seconds += Number(parts[1]) * 60;   // minutes
+    seconds += Number(parts[2]);        // seconds (can have milliseconds)
+  } else if (parts.length === 2) {
+    seconds += Number(parts[0]) * 60;   // minutes
+    seconds += Number(parts[1]);        // seconds
+  } else if (parts.length === 1) {
+    seconds += Number(parts[0]);        // seconds
   }
-  if (parts.length === 2) {
-    return parts[0] * 60 + parts[1];
-  }
-  return parts[0] || 0;
+  
+  return seconds;
 };
 
 export async function captureFrame(videoElement: HTMLVideoElement, time: number): Promise<string> {

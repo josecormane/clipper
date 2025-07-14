@@ -21,8 +21,8 @@ const GenerateVideoDescriptionInputSchema = z.object({
 export type GenerateVideoDescriptionInput = z.infer<typeof GenerateVideoDescriptionInputSchema>;
 
 const SceneSchema = z.object({
-  startTime: z.string().describe('The start time of the scene in HH:MM:SS format.'),
-  endTime: z.string().describe('The end time of the scene in HH:MM:SS format.'),
+  startTime: z.string().describe('The start time of the scene in HH:MM:SS.mmm format.'),
+  endTime: z.string().describe('The end time of the scene in HH:MM:SS.mmm format.'),
   description: z.string().describe('A concise description of what happens in this scene.'),
 });
 
@@ -42,12 +42,15 @@ const prompt = ai.definePrompt({
   name: 'generateVideoDescriptionPrompt',
   input: {schema: GenerateVideoDescriptionInputSchema},
   output: {schema: GenerateVideoDescriptionOutputSchema},
-  prompt: `You are an expert video editor. You will analyze the provided video clip and perform two tasks:
-1. Generate a descriptive summary of the entire video clip.
-2. Identify and list key scenes from the video. For each scene, provide:
-   - A start time (startTime) in HH:MM:SS format.
-   - An end time (endTime) in HH:MM:SS format.
-   - A concise description of the scene's content.
+  prompt: `You are a meticulous video editor's assistant. Your task is to analyze the provided video and break it down into its fundamental visual components.
+
+1.  First, provide a brief, one-sentence summary of the video's overall content.
+2.  Then, meticulously identify every distinct visual shot or clip in the video. A new scene begins with every hard cut, change of camera angle, or transition to a different visual asset (like b-roll footage). For each scene, provide:
+    - A start time (startTime) in precise HH:MM:SS.mmm format.
+    - An end time (endTime) in precise HH:MM:SS.mmm format.
+    - A concise description of the visual content in that specific shot.
+
+Your goal is to deconstruct the video into a list of its building blocks.
 
 Video: {{media url=videoDataUri}}`,
 });
@@ -60,6 +63,15 @@ const generateVideoDescriptionFlow = ai.defineFlow(
   },
   async input => {
     const {output} = await prompt(input);
-    return output!;
+    
+    // Log the raw output from the AI model for debugging purposes
+    console.log('Received from Gemini:', JSON.stringify(output, null, 2));
+
+    if (!output) {
+      console.error('Gemini returned a null or undefined output.');
+      return { summary: "Error: Failed to get a response from the AI.", scenes: [] };
+    }
+    
+    return output;
   }
 );

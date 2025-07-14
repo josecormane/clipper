@@ -1,4 +1,3 @@
-
 "use client";
 
 import Image from "next/image";
@@ -55,7 +54,6 @@ export function SceneCard({
       const startTime = timeStringToSeconds(scene.startTime);
       const frameDataUri = await captureFrame(videoRef.current, startTime);
       setCurrentThumbnail(frameDataUri);
-      // Visually confirm the thumbnail has been updated
       toast({
         title: "Thumbnail Updated",
         description: "The preview image has been refreshed.",
@@ -131,7 +129,7 @@ export function SceneCard({
             variant="secondary" 
             className="absolute top-1 right-1 h-7 w-7 opacity-50 group-hover:opacity-100 transition-opacity"
             onClick={(e) => {
-              e.stopPropagation(); // Prevent preview from triggering
+              e.stopPropagation();
               updateThumbnail();
             }}
             disabled={isUpdatingThumbnail}
@@ -162,6 +160,7 @@ export function SceneCard({
                   }
                   className="h-8"
                   disabled={isDownloading}
+                  step="0.001"
                 />
               </div>
               <div>
@@ -178,6 +177,7 @@ export function SceneCard({
                   onChange={(e) => handleTimeChange("endTime", e.target.value)}
                   className="h-8"
                   disabled={isDownloading}
+                  step="0.001"
                 />
               </div>
             </div>

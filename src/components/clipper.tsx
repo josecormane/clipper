@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useRef, useEffect } from "react";
@@ -18,6 +17,7 @@ import { getVideoSummary } from "@/lib/actions";
 import { timeStringToSeconds, captureFrame } from "@/lib/utils";
 import { Upload, Wand2, Loader2, Scissors, ThumbsUp } from "lucide-react";
 import { SceneCard } from "./scene-card";
+import { TimelineView } from "./timeline-view";
 
 type Scene = {
   id: number;
@@ -41,6 +41,7 @@ export function Clipper() {
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [videoDataUri, setVideoDataUri] = useState<string | null>(null);
+  const [videoDuration, setVideoDuration] = useState(0);
   const [summary, setSummary] = useState<string | null>(null);
   const [scenes, setScenes] = useState<Scene[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -48,6 +49,15 @@ export function Clipper() {
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (video) {
+      const handleLoadedMetadata = () => setVideoDuration(video.duration);
+      video.addEventListener("loadedmetadata", handleLoadedMetadata);
+      return () => video.removeEventListener("loadedmetadata", handleLoadedMetadata);
+    }
+  }, [videoUrl]);
 
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -90,11 +100,11 @@ export function Clipper() {
       
       const scenesWithThumbnails: Scene[] = [];
       
-      await new Promise((resolve, reject) => {
+      await new Promise<void>((resolve, reject) => {
         if (videoElement.readyState >= 1) {
-          return resolve(null);
+          return resolve();
         }
-        videoElement.onloadedmetadata = resolve;
+        videoElement.onloadedmetadata = () => resolve();
         videoElement.onerror = reject;
       });
 
@@ -220,6 +230,9 @@ export function Clipper() {
             <Card className="shadow-lg rounded-xl">
               <CardContent className="p-4">
                   <video ref={videoRef} controls src={videoUrl} className="w-full rounded-lg aspect-video" crossOrigin="anonymous" muted playsInline/>
+                  {scenes.length > 0 && videoDuration > 0 && (
+                    <TimelineView videoRef={videoRef} scenes={scenes} duration={videoDuration} />
+                  )}
               </CardContent>
             </Card>
           )}
