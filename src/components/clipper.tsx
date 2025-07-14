@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import type { ChangeEvent } from "react";
 import {
   Card,
@@ -13,8 +13,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { getVideoSummary } from "@/lib/actions";
-import { Upload, Wand2, Loader2, Scissors } from "lucide-react";
+import { getVideoSummary, getSceneThumbnail } from "@/lib/actions";
+import { Upload, Wand2, Loader2, Scissors, ThumbsUp } from "lucide-react";
 import { SceneCard } from "./scene-card";
 
 type Scene = {
@@ -25,8 +25,44 @@ type Scene = {
   thumbnail: string;
 };
 
+type RawScene = {
+  startTime: string;
+  endTime: string;
+  description: string;
+};
+
 const MAX_FILE_SIZE_MB = 100;
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+
+const timeStringToSeconds = (time: string): number => {
+  const parts = time.split(':').map(Number);
+  if (parts.length === 3) {
+    return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  }
+  if (parts.length === 2) {
+    return parts[0] * 60 + parts[1];
+  }
+  return parts[0] || 0;
+};
+
+async function captureFrame(videoElement: HTMLVideoElement, time: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const onSeeked = () => {
+      videoElement.removeEventListener('seeked', onSeeked);
+      const canvas = document.createElement('canvas');
+      canvas.width = videoElement.videoWidth;
+      canvas.height = videoElement.videoHeight;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        return reject(new Error('Could not get canvas context'));
+      }
+      ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL('image/jpeg', 0.9));
+    };
+    videoElement.addEventListener('seeked', onSeeked);
+    videoElement.currentTime = time;
+  });
+}
 
 export function Clipper() {
   const { toast } = useToast();
@@ -36,7 +72,10 @@ export function Clipper() {
   const [summary, setSummary] = useState<string | null>(null);
   const [scenes, setScenes] = useState<Scene[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isGeneratingThumbnails, setIsGeneratingThumbnails] = useState(false);
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -71,6 +110,45 @@ export function Clipper() {
     }
   };
 
+  const generateThumbnails = async (rawScenes: RawScene[]) => {
+      if (!videoRef.current) return;
+      setIsGeneratingThumbnails(true);
+
+      const videoElement = videoRef.current;
+      
+      const scenesWithThumbnails: Scene[] = [];
+      
+      // Need to load metadata for duration and dimensions
+      videoElement.load();
+      await new Promise(resolve => videoElement.onloadedmetadata = resolve);
+
+      for (const [index, scene] of rawScenes.entries()) {
+        try {
+          const midpointTime = (timeStringToSeconds(scene.startTime) + timeStringToSeconds(scene.endTime)) / 2;
+          const frameDataUri = await captureFrame(videoElement, midpointTime);
+
+          const thumbnailResult = await getSceneThumbnail({
+            frameDataUri,
+            description: scene.description,
+          });
+
+          if (thumbnailResult.error) {
+              throw new Error(thumbnailResult.error);
+          }
+          
+          scenesWithThumbnails.push({ ...scene, id: index + 1, thumbnail: thumbnailResult.thumbnail });
+
+        } catch (e) {
+            console.error(`Error generating thumbnail for scene: ${scene.description}`, e);
+            scenesWithThumbnails.push({ ...scene, id: index + 1, thumbnail: 'https://placehold.co/160x90.png' });
+        }
+        // Update state progressively
+        setScenes([...scenesWithThumbnails]);
+      }
+      
+      setIsGeneratingThumbnails(false);
+  }
+
   const handleAnalyzeVideo = async () => {
     if (!videoDataUri) {
       toast({
@@ -86,6 +164,7 @@ export function Clipper() {
 
     const result = await getVideoSummary({ videoDataUri });
     
+    setIsLoading(false);
     if (result.error) {
        toast({
         variant: "destructive",
@@ -94,22 +173,35 @@ export function Clipper() {
       });
     } else {
       setSummary(result.summary ?? "No summary generated.");
-      const scenesWithIds = (result.scenes ?? []).map((scene, index) => ({
-        ...scene,
-        id: index + 1,
-      }));
-      setScenes(scenesWithIds);
-       toast({
-        title: "Analysis Complete",
-        description: "Video summary and scenes are ready.",
-      });
+      if (result.scenes && result.scenes.length > 0) {
+        toast({
+          title: "Analysis Complete",
+          description: "Generating scene thumbnails...",
+        });
+        // Set scenes with placeholder thumbnails first
+        const placeholderScenes = result.scenes.map((scene, index) => ({
+          ...scene,
+          id: index + 1,
+          thumbnail: 'https://placehold.co/160x90.png',
+        }));
+        setScenes(placeholderScenes);
+
+        // Start generating real thumbnails
+        generateThumbnails(result.scenes);
+      } else {
+        toast({
+          title: "Analysis Complete",
+          description: "Video summary is ready. No scenes were detected.",
+        });
+      }
     }
-    setIsLoading(false);
   };
   
   const handleSceneUpdate = (updatedScene: Scene) => {
     setScenes(scenes.map(s => s.id === updatedScene.id ? updatedScene : s));
   }
+  
+  const allThumbnailsGenerated = !isGeneratingThumbnails && scenes.length > 0;
 
   return (
     <div className="container mx-auto p-4 sm:p-6 lg:p-8">
@@ -142,7 +234,7 @@ export function Clipper() {
           {videoUrl && (
             <Card className="shadow-lg rounded-xl">
               <CardContent className="p-4">
-                  <video controls src={videoUrl} className="w-full rounded-lg aspect-video" />
+                  <video ref={videoRef} controls src={videoUrl} className="w-full rounded-lg aspect-video" crossOrigin="anonymous" muted playsInline/>
               </CardContent>
             </Card>
           )}
@@ -195,12 +287,15 @@ export function Clipper() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                {isLoading && (
-                  <div className="flex justify-center items-center h-40">
+                {(isLoading || isGeneratingThumbnails) && (
+                  <div className="flex flex-col justify-center items-center h-40">
                      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                     <p className="mt-4 text-muted-foreground">
+                        {isLoading ? 'Analyzing video...' : 'Generating thumbnails...'}
+                     </p>
                   </div>
                 )}
-                {!isLoading && scenes.length === 0 && (
+                {!isLoading && !isGeneratingThumbnails && scenes.length === 0 && (
                   <div className="text-center text-muted-foreground p-8 rounded-lg border-2 border-dashed">
                     <p>Upload and analyze a video to see scenes here.</p>
                   </div>
@@ -212,10 +307,10 @@ export function Clipper() {
                     ))}
                   </div>
                 )}
-                {scenes.length > 0 && (
+                {allThumbnailsGenerated && (
                   <Button size="lg" className="w-full mt-6">
-                    <Scissors className="mr-2"/>
-                    Export All Clips
+                    <ThumbsUp className="mr-2"/>
+                    Looks good, let's clip!
                   </Button>
                 )}
               </CardContent>

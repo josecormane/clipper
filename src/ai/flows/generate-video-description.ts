@@ -24,7 +24,6 @@ const SceneSchema = z.object({
   startTime: z.string().describe('The start time of the scene in HH:MM:SS format.'),
   endTime: z.string().describe('The end time of the scene in HH:MM:SS format.'),
   description: z.string().describe('A concise description of what happens in this scene.'),
-  thumbnail: z.string().describe("A generated image for the scene's thumbnail, as a data URI.")
 });
 
 const GenerateVideoDescriptionOutputSchema = z.object({
@@ -49,13 +48,8 @@ const prompt = ai.definePrompt({
    - A start time (startTime) in HH:MM:SS format.
    - An end time (endTime) in HH:MM:SS format.
    - A concise description of the scene's content.
-   - A generated thumbnail image that visually represents the scene.
 
 Video: {{media url=videoDataUri}}`,
-  config: {
-    // Gemini 2.0 Flash is required for the inline image generation requested in the prompt.
-    model: 'googleai/gemini-2.0-flash-preview',
-  }
 });
 
 const generateVideoDescriptionFlow = ai.defineFlow(
