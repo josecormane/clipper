@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { getVideoSummary, getSceneThumbnail } from "@/lib/actions";
+import { getVideoSummary } from "@/lib/actions";
 import { Upload, Wand2, Loader2, Scissors, ThumbsUp } from "lucide-react";
 import { SceneCard } from "./scene-card";
 
@@ -131,20 +131,10 @@ export function Clipper() {
 
       for (const [index, scene] of rawScenes.entries()) {
         try {
-          const midpointTime = (timeStringToSeconds(scene.startTime) + timeStringToSeconds(scene.endTime)) / 2;
-          const frameDataUri = await captureFrame(videoElement, midpointTime);
+          const startTime = timeStringToSeconds(scene.startTime);
+          const frameDataUri = await captureFrame(videoElement, startTime);
+          scenesWithThumbnails.push({ ...scene, id: index + 1, thumbnail: frameDataUri });
 
-          const thumbnailResult = await getSceneThumbnail({
-            frameDataUri,
-            description: scene.description,
-          });
-
-          if (thumbnailResult.error) {
-              console.error("Error generating thumbnail for scene:", scene.description, thumbnailResult.error);
-              scenesWithThumbnails.push({ ...scene, id: index + 1, thumbnail: 'https://placehold.co/160x90.png' });
-          } else {
-             scenesWithThumbnails.push({ ...scene, id: index + 1, thumbnail: thumbnailResult.thumbnail });
-          }
         } catch (e) {
             console.error(`Error processing thumbnail for scene: ${scene.description}`, e);
             scenesWithThumbnails.push({ ...scene, id: index + 1, thumbnail: 'https://placehold.co/160x90.png' });
