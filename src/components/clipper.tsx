@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useRef, useEffect } from "react";
@@ -195,6 +196,29 @@ export function Clipper() {
 
     video.addEventListener("timeupdate", checkTime);
   };
+
+  const handleTimelineSegmentClick = (startTime: string, endTime: string) => {
+    if (!videoRef.current) return;
+    const video = videoRef.current;
+
+    video.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+    const start = timeStringToSeconds(startTime);
+    const end = timeStringToSeconds(endTime);
+
+    video.currentTime = start;
+    if (video.muted) video.muted = false;
+    video.play();
+
+    const checkTime = () => {
+      if (video.currentTime >= end) {
+        video.pause();
+        video.removeEventListener("timeupdate", checkTime);
+      }
+    };
+
+    video.addEventListener("timeupdate", checkTime);
+  };
   
   const allThumbnailsGenerated = !isGeneratingThumbnails && scenes.length > 0;
 
@@ -231,7 +255,12 @@ export function Clipper() {
               <CardContent className="p-4">
                   <video ref={videoRef} controls src={videoUrl} className="w-full rounded-lg aspect-video" crossOrigin="anonymous" muted playsInline/>
                   {scenes.length > 0 && videoDuration > 0 && (
-                    <TimelineView videoRef={videoRef} scenes={scenes} duration={videoDuration} />
+                    <TimelineView 
+                      videoRef={videoRef} 
+                      scenes={scenes} 
+                      duration={videoDuration} 
+                      onSegmentClick={handleTimelineSegmentClick} // Added this prop
+                    />
                   )}
               </CardContent>
             </Card>

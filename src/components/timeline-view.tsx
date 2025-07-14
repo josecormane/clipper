@@ -27,9 +27,10 @@ interface TimelineViewProps {
   videoRef: RefObject<HTMLVideoElement>;
   scenes: Scene[];
   duration: number;
+  onSegmentClick: (startTime: string, endTime: string) => void;
 }
 
-export function TimelineView({ videoRef, scenes, duration }: TimelineViewProps) {
+export function TimelineView({ videoRef, scenes, duration, onSegmentClick }: TimelineViewProps) {
   const [currentTime, setCurrentTime] = useState(0);
 
   useEffect(() => {
@@ -58,10 +59,11 @@ export function TimelineView({ videoRef, scenes, duration }: TimelineViewProps) 
         return (
           <div
             key={scene.id}
-            className="absolute h-full bg-accent/50 hover:bg-accent/80 transition-colors"
+            className="absolute h-full bg-accent/50 hover:bg-accent/80 transition-colors cursor-pointer"
             style={{ left: `${left}%`, width: `${width}%` }}
             title={`${scene.description}
 ${scene.startTime} - ${scene.endTime}`}
+            onClick={() => onSegmentClick(scene.startTime, scene.endTime)}
           />
         );
       })}
