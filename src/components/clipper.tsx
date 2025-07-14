@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { getVideoSummary } from "@/lib/actions";
+import { timeStringToSeconds, captureFrame } from "@/lib/utils";
 import { Upload, Wand2, Loader2, Scissors, ThumbsUp } from "lucide-react";
 import { SceneCard } from "./scene-card";
 
@@ -33,60 +34,6 @@ type RawScene = {
 
 const MAX_FILE_SIZE_MB = 100;
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
-
-const timeStringToSeconds = (time: string): number => {
-  const parts = time.split(':').map(Number);
-  if (parts.length === 3) {
-    return parts[0] * 3600 + parts[1] * 60 + parts[2];
-  }
-  if (parts.length === 2) {
-    return parts[0] * 60 + parts[1];
-  }
-  return parts[0] || 0;
-};
-
-async function captureFrame(videoElement: HTMLVideoElement, time: number): Promise<string> {
-  return new Promise((resolve, reject) => {
-    // This listener is called when the video has successfully seeked to the desired time.
-    const onSeeked = () => {
-      // Clean up event listeners to avoid memory leaks
-      videoElement.removeEventListener('seeked', onSeeked);
-      videoElement.removeEventListener('error', onError);
-
-      // Create a canvas to draw the video frame onto
-      const canvas = document.createElement('canvas');
-      canvas.width = videoElement.videoWidth;
-      canvas.height = videoElement.videoHeight;
-      const ctx = canvas.getContext('2d');
-      
-      if (!ctx) {
-        return reject(new Error('Could not get canvas context'));
-      }
-      
-      // Draw the current video frame onto the canvas
-      ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
-      
-      // Resolve the promise with the canvas content as a data URL (JPEG format)
-      resolve(canvas.toDataURL('image/jpeg', 0.9));
-    };
-
-    // This listener is called if there's an error during the seeking process.
-     const onError = (e: Event) => {
-      // Clean up event listeners
-      videoElement.removeEventListener('seeked', onSeeked);
-      videoElement.removeEventListener('error', onError);
-      console.error('Video seeking error:', e);
-      reject(new Error('Error seeking video to capture frame.'));
-    }
-
-    // Add the event listeners
-    videoElement.addEventListener('seeked', onSeeked);
-    videoElement.addEventListener('error', onError);
-    
-    // Set the video's current time to trigger the seek operation
-    videoElement.currentTime = time;
-  });
-}
 
 export function Clipper() {
   const { toast } = useToast();
@@ -142,32 +89,24 @@ export function Clipper() {
       
       const scenesWithThumbnails: Scene[] = [];
       
-      // We need to load metadata to get video dimensions and ensure it's ready for seeking.
-      // We wrap this in a promise to handle the asynchronous nature of loading video data.
       await new Promise((resolve, reject) => {
-        // If metadata is already loaded, resolve immediately.
         if (videoElement.readyState >= 1) {
           return resolve(null);
         }
-        // Otherwise, wait for the 'loadedmetadata' event.
         videoElement.onloadedmetadata = resolve;
         videoElement.onerror = reject;
       });
 
       for (const [index, scene] of rawScenes.entries()) {
         try {
-          // Convert HH:MM:SS to seconds for seeking
           const startTime = timeStringToSeconds(scene.startTime);
-          // Capture the frame at the start time
           const frameDataUri = await captureFrame(videoElement, startTime);
           scenesWithThumbnails.push({ ...scene, id: index + 1, thumbnail: frameDataUri });
 
         } catch (e) {
             console.error(`Error processing thumbnail for scene: ${scene.description}`, e);
-            // If capturing fails, use a placeholder and continue
             scenesWithThumbnails.push({ ...scene, id: index + 1, thumbnail: 'https://placehold.co/160x90.png' });
         }
-        // Update state progressively so the user sees thumbnails as they are generated
         setScenes([...scenesWithThumbnails]);
       }
       
@@ -203,15 +142,12 @@ export function Clipper() {
           title: "Analysis Complete",
           description: "Generating scene thumbnails...",
         });
-        // Set scenes with placeholder thumbnails first
         const placeholderScenes = result.scenes.map((scene, index) => ({
           ...scene,
           id: index + 1,
           thumbnail: 'https://placehold.co/160x90.png',
         }));
         setScenes(placeholderScenes);
-
-        // Start generating real thumbnails
         generateThumbnails(result.scenes);
       } else {
         toast({
@@ -333,6 +269,7 @@ export function Clipper() {
                         scene={scene} 
                         onUpdate={handleSceneUpdate}
                         videoDataUri={videoDataUri}
+                        videoRef={videoRef}
                       />
                     ))}
                   </div>

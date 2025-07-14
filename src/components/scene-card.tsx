@@ -1,14 +1,15 @@
 "use client";
 
 import Image from "next/image";
-import { useState } from "react";
+import { useState, useEffect, RefObject } from "react";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { Download, Clock, Loader2 } from "lucide-react";
+import { Download, Clock, Play, Loader2, RefreshCw } from "lucide-react";
 import { clipVideo } from "@/lib/actions";
 import { useToast } from "@/hooks/use-toast";
+import { timeStringToSeconds, captureFrame } from "@/lib/utils";
 
 type Scene = {
   id: number;
@@ -22,16 +23,71 @@ interface SceneCardProps {
   scene: Scene;
   onUpdate: (scene: Scene) => void;
   videoDataUri: string | null;
+  videoRef: RefObject<HTMLVideoElement>;
 }
 
-export function SceneCard({ scene, onUpdate, videoDataUri }: SceneCardProps) {
+export function SceneCard({
+  scene,
+  onUpdate,
+  videoDataUri,
+  videoRef,
+}: SceneCardProps) {
   const [isDownloading, setIsDownloading] = useState(false);
+  const [isUpdatingThumbnail, setIsUpdatingThumbnail] = useState(false);
+  const [currentThumbnail, setCurrentThumbnail] = useState(scene.thumbnail);
   const { toast } = useToast();
+
+  useEffect(() => {
+    setCurrentThumbnail(scene.thumbnail);
+  }, [scene.thumbnail]);
 
   const handleTimeChange = (field: "startTime" | "endTime", value: string) => {
     onUpdate({ ...scene, [field]: value });
   };
-  
+
+  const updateThumbnail = async () => {
+    if (!videoRef.current) return;
+    setIsUpdatingThumbnail(true);
+    try {
+      const startTime = timeStringToSeconds(scene.startTime);
+      const frameDataUri = await captureFrame(videoRef.current, startTime);
+      setCurrentThumbnail(frameDataUri);
+      // Visually confirm the thumbnail has been updated
+      toast({
+        title: "Thumbnail Updated",
+        description: "The preview image has been refreshed.",
+      });
+    } catch (error) {
+      console.error("Failed to update thumbnail:", error);
+       toast({
+        variant: "destructive",
+        title: "Update Failed",
+        description: "Could not refresh the thumbnail.",
+      });
+    } finally {
+      setIsUpdatingThumbnail(false);
+    }
+  };
+
+  const handlePreview = () => {
+    if (!videoRef.current) return;
+    const video = videoRef.current;
+    const startTime = timeStringToSeconds(scene.startTime);
+    const endTime = timeStringToSeconds(scene.endTime);
+
+    video.currentTime = startTime;
+    video.play();
+
+    const checkTime = () => {
+      if (video.currentTime >= endTime) {
+        video.pause();
+        video.removeEventListener("timeupdate", checkTime);
+      }
+    };
+
+    video.addEventListener("timeupdate", checkTime);
+  };
+
   const handleDownload = async () => {
     if (!videoDataUri) {
       toast({
@@ -41,43 +97,31 @@ export function SceneCard({ scene, onUpdate, videoDataUri }: SceneCardProps) {
       });
       return;
     }
-    
+
     setIsDownloading(true);
-
-    const fileName = `clip_${scene.id}_${scene.startTime.replace(/:/g, '-')}_${scene.endTime.replace(/:/g, '-')}.mp4`;
-
-    console.log("Clipping with the following data:", {
-      videoDataUri: videoDataUri.substring(0, 30) + '...', // Don't log the whole huge string
-      startTime: scene.startTime,
-      endTime: scene.endTime,
-      fileName,
-    });
-
+    const fileName = `clip_${scene.id}_${scene.startTime.replace(/:/g, "-")}_${scene.endTime.replace(/:/g, "-")}.mp4`;
     const result = await clipVideo({
       videoDataUri,
       startTime: scene.startTime,
       endTime: scene.endTime,
       fileName,
     });
-    
     setIsDownloading(false);
 
     if (result.error) {
-      console.error("Clipping failed with error:", result.error);
       toast({
         variant: "destructive",
         title: "Clipping Failed",
         description: result.error,
       });
     } else if (result.clipDataUri) {
-      // Create a link and trigger download
-      const link = document.createElement('a');
+      const link = document.createElement("a");
       link.href = result.clipDataUri;
       link.download = fileName;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-       toast({
+      toast({
         title: "Download Started",
         description: "Your video clip is downloading.",
       });
@@ -87,38 +131,63 @@ export function SceneCard({ scene, onUpdate, videoDataUri }: SceneCardProps) {
   return (
     <Card className="overflow-hidden bg-card/80 backdrop-blur-sm">
       <div className="grid grid-cols-3 gap-4">
-        <div className="col-span-1">
+        <div className="col-span-1 relative group cursor-pointer" onClick={handlePreview}>
           <Image
-            src={scene.thumbnail}
+            src={currentThumbnail}
             alt={`Scene ${scene.id}`}
             width={160}
             height={90}
             className="object-cover w-full h-full"
-            data-ai-hint="video scene"
           />
+           <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+              <Play className="h-8 w-8 text-white" />
+           </div>
+           <Button 
+            size="icon" 
+            variant="secondary" 
+            className="absolute top-1 right-1 h-7 w-7 opacity-50 group-hover:opacity-100 transition-opacity"
+            onClick={(e) => {
+              e.stopPropagation(); // Prevent preview from triggering
+              updateThumbnail();
+            }}
+            disabled={isUpdatingThumbnail}
+            title="Update thumbnail to current start time"
+          >
+            {isUpdatingThumbnail ? <Loader2 className="h-4 w-4 animate-spin"/> : <RefreshCw className="h-4 w-4"/>}
+          </Button>
         </div>
         <div className="col-span-2">
           <CardContent className="p-4">
-            <p className="text-sm font-medium text-foreground mb-3">{scene.description}</p>
+            <p className="text-sm font-medium text-foreground mb-3">
+              {scene.description}
+            </p>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label htmlFor={`start-${scene.id}`} className="flex items-center text-xs text-muted-foreground mb-1">
+                <Label
+                  htmlFor={`start-${scene.id}`}
+                  className="flex items-center text-xs text-muted-foreground mb-1"
+                >
                   <Clock className="w-3 h-3 mr-1" />
                   Start
                 </Label>
                 <Input
                   id={`start-${scene.id}`}
                   value={scene.startTime}
-                  onChange={(e) => handleTimeChange("startTime", e.target.value)}
+                  onChange={(e) =>
+                    handleTimeChange("startTime", e.target.value)
+                  }
                   className="h-8"
                   disabled={isDownloading}
                 />
               </div>
               <div>
-                 <Label htmlFor={`end-${scene.id}`} className="flex items-center text-xs text-muted-foreground mb-1">
-                    <Clock className="w-3 h-3 mr-1" />
-                    End
-                 </Label>
+                <Label
+                  htmlFor={`end-${scene.id}`}
+                  className="flex items-center text-xs text-muted-foreground mb-1"
+                >
+                  <Clock className="w-3 h-3 mr-1" />
+                  End
+                </Label>
                 <Input
                   id={`end-${scene.id}`}
                   value={scene.endTime}
@@ -131,22 +200,22 @@ export function SceneCard({ scene, onUpdate, videoDataUri }: SceneCardProps) {
           </CardContent>
         </div>
       </div>
-       <CardFooter className="bg-muted/30 px-4 py-2">
-          <Button 
-            variant="ghost" 
-            size="sm" 
-            className="w-full justify-start text-accent hover:text-accent hover:bg-accent/10"
-            onClick={handleDownload}
-            disabled={isDownloading}
-          >
-            {isDownloading ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <Download className="mr-2 h-4 w-4" />
-            )}
-            {isDownloading ? 'Clipping...' : 'Download Clip'}
-          </Button>
-        </CardFooter>
+      <CardFooter className="bg-muted/30 px-4 py-2 flex justify-end">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-accent hover:text-accent hover:bg-accent/10"
+          onClick={handleDownload}
+          disabled={isDownloading}
+        >
+          {isDownloading ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <Download className="mr-2 h-4 w-4" />
+          )}
+          {isDownloading ? "Clipping..." : "Download"}
+        </Button>
+      </CardFooter>
     </Card>
   );
 }
