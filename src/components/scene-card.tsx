@@ -1,3 +1,4 @@
+
 "use client";
 
 import Image from "next/image";
@@ -24,6 +25,7 @@ interface SceneCardProps {
   onUpdate: (scene: Scene) => void;
   videoDataUri: string | null;
   videoRef: RefObject<HTMLVideoElement>;
+  onPreview: (scene: Scene) => void;
 }
 
 export function SceneCard({
@@ -31,6 +33,7 @@ export function SceneCard({
   onUpdate,
   videoDataUri,
   videoRef,
+  onPreview,
 }: SceneCardProps) {
   const [isDownloading, setIsDownloading] = useState(false);
   const [isUpdatingThumbnail, setIsUpdatingThumbnail] = useState(false);
@@ -67,25 +70,6 @@ export function SceneCard({
     } finally {
       setIsUpdatingThumbnail(false);
     }
-  };
-
-  const handlePreview = () => {
-    if (!videoRef.current) return;
-    const video = videoRef.current;
-    const startTime = timeStringToSeconds(scene.startTime);
-    const endTime = timeStringToSeconds(scene.endTime);
-
-    video.currentTime = startTime;
-    video.play();
-
-    const checkTime = () => {
-      if (video.currentTime >= endTime) {
-        video.pause();
-        video.removeEventListener("timeupdate", checkTime);
-      }
-    };
-
-    video.addEventListener("timeupdate", checkTime);
   };
 
   const handleDownload = async () => {
@@ -131,7 +115,7 @@ export function SceneCard({
   return (
     <Card className="overflow-hidden bg-card/80 backdrop-blur-sm">
       <div className="grid grid-cols-3 gap-4">
-        <div className="col-span-1 relative group cursor-pointer" onClick={handlePreview}>
+        <div className="col-span-1 relative group cursor-pointer" onClick={() => onPreview(scene)}>
           <Image
             src={currentThumbnail}
             alt={`Scene ${scene.id}`}

@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useRef, useEffect } from "react";
@@ -161,6 +162,29 @@ export function Clipper() {
   const handleSceneUpdate = (updatedScene: Scene) => {
     setScenes(scenes.map(s => s.id === updatedScene.id ? updatedScene : s));
   }
+
+  const handlePreviewScene = (scene: Scene) => {
+    if (!videoRef.current) return;
+    const video = videoRef.current;
+    
+    video.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    
+    const startTime = timeStringToSeconds(scene.startTime);
+    const endTime = timeStringToSeconds(scene.endTime);
+
+    video.currentTime = startTime;
+    if (video.muted) video.muted = false;
+    video.play();
+
+    const checkTime = () => {
+      if (video.currentTime >= endTime) {
+        video.pause();
+        video.removeEventListener("timeupdate", checkTime);
+      }
+    };
+
+    video.addEventListener("timeupdate", checkTime);
+  };
   
   const allThumbnailsGenerated = !isGeneratingThumbnails && scenes.length > 0;
 
@@ -270,6 +294,7 @@ export function Clipper() {
                         onUpdate={handleSceneUpdate}
                         videoDataUri={videoDataUri}
                         videoRef={videoRef}
+                        onPreview={handlePreviewScene}
                       />
                     ))}
                   </div>
