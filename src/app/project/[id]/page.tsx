@@ -8,16 +8,12 @@ import { Logo } from '@/components/logo';
 import { Button } from '@/components/ui/button';
 import { SceneCard } from '@/components/scene-card';
 import { TimelineView } from '@/components/timeline-view';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Loader2, ArrowLeft, Trash2, Download, Wand2, AlertTriangle, Image as ImageIcon } from 'lucide-react';
+import { Loader2, Trash2, Download, Wand2, AlertTriangle, Image as ImageIcon } from 'lucide-react';
 import { saveAs } from 'file-saver';
-import { timeStringToSeconds, secondsToTimeString } from '@/lib/utils'; // Import helpers
-import { Switch } from '@/components/ui/switch'; // Import Switch
-import { Label } from '@/components/ui/label'; // Import Label
-import { ScenesTableView } from '@/components/scenes-table-view'; // Import ScenesTableView
+import { timeStringToSeconds, secondsToTimeString } from '@/lib/utils';
 import Link from 'next/link';
+import { Carousel, CarouselContent, CarouselItem } from '@/components/ui/carousel';
 
 type Scene = {
   id: number;
@@ -34,7 +30,7 @@ type Project = {
   scenes: Scene[];
   status: 'uploaded' | 'analyzing' | 'analyzed' | 'error';
   analysisError?: string;
-  lastModified?: string; // Add lastModified field
+  lastModified?: string;
 };
 
 export default function ProjectPage() {
@@ -44,15 +40,12 @@ export default function ProjectPage() {
   const [isGeneratingThumbs, setIsGeneratingThumbs] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [videoDuration, setVideoDuration] = useState(0);
-  const [selectedScenes, setSelectedScenes] = useState<Set<number>>(new Set());
-  const [viewMode, setViewMode] = useState<'card' | 'table'>('card'); // New state for view mode
   
   const params = useParams();
   const router = useRouter();
   const { toast } = useToast();
   const videoRef = useRef<HTMLVideoElement>(null);
   const stopPlaybackRef = useRef<(() => void) | null>(null);
-
 
   const projectId = params.id as string;
 
@@ -63,8 +56,11 @@ export default function ProjectPage() {
       router.push('/');
     } else {
       setProject(data as Project);
-      if((data as Project).status === 'analyzing') setIsAnalyzing(true);
-      else setIsAnalyzing(false);
+      if ((data as Project).status === 'analyzing') {
+        setIsAnalyzing(true);
+      } else {
+        setIsAnalyzing(false);
+      }
     }
     setIsLoading(false);
   }, [projectId, router, toast]);
@@ -75,9 +71,9 @@ export default function ProjectPage() {
     fetchProjectData();
 
     const interval = setInterval(() => {
-        if(document.visibilityState === 'visible' && project?.status === 'analyzing') {
-            fetchProjectData();
-        }
+      if (document.visibilityState === 'visible' && project?.status === 'analyzing') {
+        fetchProjectData();
+      }
     }, 5000);
 
     return () => clearInterval(interval);
@@ -86,21 +82,21 @@ export default function ProjectPage() {
   const handleAnalyzeClick = async () => {
     if (!project) return;
     setIsAnalyzing(true);
-    toast({ title: "Analysis Started", description: "This may take a few minutes."});
+    toast({ title: "Analysis Started", description: "This may take a few minutes." });
     const { error } = await analyzeProject({ projectId, videoUrl: project.originalVideoUrl });
     if (error) {
-        toast({ variant: 'destructive', title: 'Analysis Failed', description: error });
+      toast({ variant: 'destructive', title: 'Analysis Failed', description: error });
     }
     fetchProjectData();
   };
 
   const handleGenerateThumbnails = async () => {
-    if(!project) return;
+    if (!project) return;
     setIsGeneratingThumbs(true);
-    toast({ title: "Generating Thumbnails", description: "This may take a moment..."});
-    const {error} = await generateThumbnails({ projectId, videoUrl: project.originalVideoUrl });
-    if(error) {
-        toast({ variant: 'destructive', title: 'Thumbnail Generation Failed', description: error });
+    toast({ title: "Generating Thumbnails", description: "This may take a moment..." });
+    const { error } = await generateThumbnails({ projectId, videoUrl: project.originalVideoUrl });
+    if (error) {
+      toast({ variant: 'destructive', title: 'Thumbnail Generation Failed', description: error });
     }
     fetchProjectData();
   };
@@ -109,7 +105,7 @@ export default function ProjectPage() {
     if (!videoRef.current) return;
 
     if (stopPlaybackRef.current) {
-        stopPlaybackRef.current();
+      stopPlaybackRef.current();
     }
     
     const video = videoRef.current;
@@ -125,8 +121,8 @@ export default function ProjectPage() {
     };
 
     stopPlaybackRef.current = () => {
-        video.pause();
-        video.removeEventListener("timeupdate", checkTime);
+      video.pause();
+      video.removeEventListener("timeupdate", checkTime);
     };
 
     video.addEventListener("timeupdate", checkTime);
@@ -140,20 +136,20 @@ export default function ProjectPage() {
 
   const handleSceneUpdate = useCallback((updatedScene: Scene) => {
     if (!project) return;
-    let newScenes = project.scenes.map(s => s.id === updatedScene.id ? updatedScene : s);
+    let newScenes = project.scenes.map(s => (s.id === updatedScene.id ? updatedScene : s));
     
     const sceneIndex = newScenes.findIndex(s => s.id === updatedScene.id);
     if (sceneIndex > 0) {
-        const prevScene = newScenes[sceneIndex - 1];
-        if (prevScene.endTime !== updatedScene.startTime) {
-            newScenes[sceneIndex - 1] = {...prevScene, endTime: updatedScene.startTime};
-        }
+      const prevScene = newScenes[sceneIndex - 1];
+      if (prevScene.endTime !== updatedScene.startTime) {
+        newScenes[sceneIndex - 1] = { ...prevScene, endTime: updatedScene.startTime };
+      }
     }
     if (sceneIndex < newScenes.length - 1) {
-        const nextScene = newScenes[sceneIndex + 1];
-        if (nextScene.startTime !== updatedScene.endTime) {
-            newScenes[sceneIndex + 1] = {...nextScene, startTime: updatedScene.endTime};
-        }
+      const nextScene = newScenes[sceneIndex + 1];
+      if (nextScene.startTime !== updatedScene.endTime) {
+        newScenes[sceneIndex + 1] = { ...nextScene, startTime: updatedScene.endTime };
+      }
     }
     autosave(newScenes);
   }, [project, autosave]);
@@ -172,7 +168,7 @@ export default function ProjectPage() {
     }
 
     const newScene: Scene = { id: Date.now(), startTime: splitTimeStr, endTime: sceneToSplit.endTime, description: "New scene" };
-    const updatedOldScene = {...sceneToSplit, endTime: splitTimeStr};
+    const updatedOldScene = { ...sceneToSplit, endTime: splitTimeStr };
     
     let newScenes = [...project.scenes];
     newScenes[sceneToSplitIndex] = updatedOldScene;
@@ -195,12 +191,11 @@ export default function ProjectPage() {
     autosave([...remainingScenes, mergedScene].sort((a,b) => timeStringToSeconds(a.startTime) - timeStringToSeconds(b.startTime)).map((s, i) => ({ ...s, id: i + 1 })));
   }, [project, autosave]);
   
-  const handleDownload = async () => {
-    if (!project || selectedScenes.size === 0) return;
+  const handleDownloadAll = async () => {
+    if (!project) return;
     setIsDownloading(true);
 
-    const scenesToDownload = project.scenes.filter(s => selectedScenes.has(s.id));
-    for (const scene of scenesToDownload) {
+    for (const scene of project.scenes) {
       const clipResult = await clipVideo({ videoUrl: project.originalVideoUrl, startTime: scene.startTime, endTime: scene.endTime });
       if (clipResult.error) {
         toast({ variant: 'destructive', title: `Failed to clip scene ${scene.id}`, description: clipResult.error });
@@ -211,131 +206,93 @@ export default function ProjectPage() {
     setIsDownloading(false);
   };
 
-  const handlePreview = (scene: Scene) => {
-    if (!videoRef.current) return;
-    videoRef.current.currentTime = timeStringToSeconds(scene.startTime);
-    videoRef.current.play();
-  };
-
   if (isLoading) return <div className="flex justify-center items-center h-screen"><Loader2 className="h-16 w-16 animate-spin" /></div>;
   if (!project) return null;
   
   return (
-    <div className="container mx-auto p-4 sm:p-6 lg:p-8">
-      <header className="flex justify-between items-center mb-8">
+    <div className="flex flex-col h-screen">
+      <header className="flex justify-between items-center p-4 border-b">
         <Link href="/">
           <Logo />
         </Link>
-        <Button variant="destructive" onClick={async () => { await deleteProject({ projectId }); router.push('/'); }}><Trash2 className="mr-2"/>Delete</Button>
+        <Button variant="destructive" onClick={async () => { await deleteProject({ projectId }); router.push('/'); }}><Trash2 className="mr-2" />Delete</Button>
       </header>
 
-      <main className="grid grid-cols-1 lg:grid-cols-5 gap-8">
-        <div className="lg:col-span-3 space-y-8">
-          <Card>
-            <CardHeader>
-                <div className="flex justify-between items-center">
-                  <CardTitle className="flex items-center space-x-2">
-                      <img src="/machete-icon.png" alt="Machete Icon" className="h-6 w-6" />
-                      <span>{project.name}</span>
-                  </CardTitle>
-                    {project.status === 'uploaded' && (
-                        <Button onClick={handleAnalyzeClick}>
-                            <Wand2 className="mr-2 h-4 w-4"/>
-                            Analyze Project
-                        </Button>
-                    )}
-                </div>
-                <div className="text-sm text-muted-foreground">
-                    {project.lastModified && <p>Last Modified: {new Date(project.lastModified).toLocaleString()}</p>}
-                    {videoDuration > 0 && <p>Video Length: {secondsToTimeString(videoDuration)}</p>}
-                </div>
-            </CardHeader>
-            <CardContent>
-              <video ref={videoRef} controls src={project.originalVideoUrl} className="w-full rounded-lg aspect-video" crossOrigin="anonymous" onLoadedMetadata={(e) => setVideoDuration(e.currentTarget.duration)} />
-              {project.scenes.length > 0 && videoDuration > 0 && (
-                <TimelineView videoRef={videoRef} scenes={project.scenes} duration={videoDuration} onSplit={handleSplit} onMerge={handleMerge} onSegmentClick={handleSegmentClick} />
+      <main className="flex-grow p-6">
+        <div className="w-full max-w-5xl mx-auto">
+          <video ref={videoRef} controls src={project.originalVideoUrl} className="w-full rounded-lg aspect-video mb-4 max-h-[45vh]" crossOrigin="anonymous" onLoadedMetadata={(e) => setVideoDuration(e.currentTarget.duration)} />
+          
+          <div className="flex justify-between items-start mb-4">
+            <div>
+              <h1 className="text-2xl font-bold">{project.name}</h1>
+              <div className="text-sm text-muted-foreground mt-1">
+                {videoDuration > 0 && <span>Video Length: {secondsToTimeString(videoDuration)}</span>}
+                {project.lastModified && <span className="ml-4">Last Modified: {new Date(project.lastModified).toLocaleString()}</span>}
+              </div>
+            </div>
+            <div className="flex items-center space-x-2">
+              {project.status === 'uploaded' && (
+                <Button onClick={handleAnalyzeClick} disabled={isAnalyzing}>
+                  {isAnalyzing ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Wand2 className="mr-2 h-4 w-4"/>}
+                  Analyze Project
+                </Button>
               )}
-            </CardContent>
-          </Card>
-        </div>
-        <div className="lg:col-span-2 space-y-8">
-            <Card>
-                <CardHeader>
-                    <div className="flex justify-between items-center">
-                        <CardTitle>Scenes</CardTitle>
-                        <div className="flex items-center space-x-2">
-                            <Label htmlFor="view-mode-switch">Table View</Label>
-                            <Switch
-                                id="view-mode-switch"
-                                checked={viewMode === 'table'}
-                                onCheckedChange={(checked) => setViewMode(checked ? 'table' : 'card')}
-                            />
-                        </div>
-                        {project.status === 'analyzed' && (
-                            <Button onClick={handleGenerateThumbnails} disabled={isGeneratingThumbs}>
-                                {isGeneratingThumbs ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <ImageIcon className="mr-2 h-4 w-4"/>}
-                                Generate Thumbnails
-                            </Button>
-                        )}
-                    </div>
-                </CardHeader>
-                <CardContent>
-                    {project.status === 'analyzing' && (
-                        <div className="flex flex-col items-center justify-center h-40">
-                            <Loader2 className="h-8 w-8 animate-spin text-primary"/>
-                            <p className="mt-4 text-muted-foreground">Analyzing video...</p>
-                        </div>
-                    )}
-                    {project.status === 'error' && (
-                        <Alert variant="destructive">
-                            <AlertTriangle className="h-4 w-4" />
-                            <AlertTitle>Analysis Failed</AlertTitle>
-                            <AlertDescription>
-                                {project.analysisError || "An unknown error occurred."}
-                            </AlertDescription>
-                        </Alert>
-                    )}
-                    {viewMode === 'card' ? (
-                        <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-2">
-                            {project.scenes.map(scene => (
-                                <div key={scene.id} className="flex items-center space-x-2">
-                                    <Checkbox id={`scene-${scene.id}`} onCheckedChange={(checked) => {
-                                        setSelectedScenes(prev => {
-                                            const newSelection = new Set(prev);
-                                            if (checked) newSelection.add(scene.id);
-                                            else newSelection.delete(scene.id);
-                                            return newSelection;
-                                        });
-                                    }}/>
-                                    <div className="flex-grow">
-                                        <SceneCard scene={scene} onUpdate={handleSceneUpdate} onPreview={handlePreview} videoRef={videoRef} />
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    ) : (
-                        <ScenesTableView 
-                            scenes={project.scenes} 
-                            onUpdate={handleSceneUpdate} 
-                            onPreview={handlePreview} 
-                            onSplit={handleSplit}
-                            onMerge={handleMerge}
-                            onSegmentClick={handleSegmentClick}
-                            selectedScenes={selectedScenes}
-                            setSelectedScenes={setSelectedScenes}
-                            videoRef={videoRef}
-                        />
-                    )}
-                    {project.scenes.length > 0 && (
-                        <Button className="w-full mt-4" onClick={handleDownload} disabled={isDownloading || selectedScenes.size === 0}>
-                            {isDownloading ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Download className="mr-2"/>}
-                            Download Selected ({selectedScenes.size})
-                        </Button>
-                    )}
-                </CardContent>
-            </Card>
+              {project.status === 'analyzed' && (
+                <Button onClick={handleGenerateThumbnails} disabled={isGeneratingThumbs}>
+                  {isGeneratingThumbs ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <ImageIcon className="mr-2 h-4 w-4"/>}
+                  Generate Thumbnails
+                </Button>
+              )}
+              <Button onClick={handleDownloadAll} disabled={isDownloading}>
+                {isDownloading ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Download className="mr-2"/>}
+                Download All Scenes
+              </Button>
+            </div>
+          </div>
+
+          {project.scenes.length > 0 && videoDuration > 0 && (
+            <TimelineView videoRef={videoRef} scenes={project.scenes} duration={videoDuration} onSplit={handleSplit} onMerge={handleMerge} onSegmentClick={handleSegmentClick} />
+          )}
+
+          {project.status === 'analyzing' && (
+            <div className="flex flex-col items-center justify-center h-40">
+              <Loader2 className="h-8 w-8 animate-spin text-primary"/>
+              <p className="mt-4 text-muted-foreground">Analyzing video...</p>
+            </div>
+          )}
+          {project.status === 'error' && (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertTitle>Analysis Failed</AlertTitle>
+              <AlertDescription>
+                {project.analysisError || "An unknown error occurred."}
+              </AlertDescription>
+            </Alert>
+          )}
         </div>
       </main>
+      
+      {project.scenes.length > 0 && (
+        <footer className="w-full p-6 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+          <Carousel
+            opts={{
+              align: "start",
+              slidesToScroll: "auto",
+            }}
+            className="w-full max-w-full"
+          >
+            <CarouselContent>
+              {project.scenes.map((scene) => (
+                <CarouselItem key={scene.id} className="md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
+                  <div className="p-1">
+                    <SceneCard scene={scene} onUpdate={handleSceneUpdate} onPreview={() => handleSegmentClick(scene.startTime, scene.endTime)} videoRef={videoRef} />
+                  </div>
+                </CarouselItem>
+              ))}
+            </CarouselContent>
+          </Carousel>
+        </footer>
+      )}
     </div>
   );
 }
