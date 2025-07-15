@@ -88,10 +88,16 @@ export async function createProject(input: { projectName: string, gcsPath: strin
           expires: '03-09-2491',
         });
 
+        const { duration, error } = await getVideoDuration({ videoUrl });
+        if (error) {
+            return { error: `Failed to get video duration: ${error}` };
+        }
+
         const projectDoc = await addDoc(projectsCollection, {
           name: projectName,
           originalVideoUrl: videoUrl,
           gcsPath: gcsPath,
+          duration: duration,
           createdAt: new Date(),
           lastModified: new Date(),
           scenes: [],
@@ -161,7 +167,6 @@ export async function generateThumbnails(input: { projectId: string, videoUrl: s
     }
 }
 
-// ... (rest of actions are the same)
 export async function analyzeProject(input: { projectId: string; videoUrl: string }) {
     const { projectId, videoUrl } = input;
     const projectRef = doc(db, 'projects', projectId);
@@ -247,13 +252,43 @@ export async function analyzeProject(input: { projectId: string; videoUrl: strin
   }
   
   export async function deleteProject(input: { projectId: string }) {
-      try {
-          await deleteDoc(doc(db, 'projects', input.projectId));
-          return { success: true };
-      } catch (e: any) {
-          return { error: `Failed to delete project: ${e.message}` };
-      }
-  }
+    console.log(`Attempting to delete project with ID: ${input.projectId}`);
+    try {
+        const projectRef = doc(db, 'projects', input.projectId);
+        const projectDoc = await getDoc(projectRef);
+
+        if (!projectDoc.exists()) {
+            console.error(`Project with ID ${input.projectId} not found.`);
+            return { error: 'Project not found.' };
+        }
+
+        const projectData = projectDoc.data();
+        console.log('Project data for deletion:', projectData);
+
+        const gcsPath = projectData.gcsPath;
+        console.log(`GCS path for deletion: ${gcsPath}`);
+
+        if (!gcsPath || typeof gcsPath !== 'string' || gcsPath.trim() === '') {
+            console.error('Invalid or missing GCS path. Aborting storage deletion.');
+        } else {
+            try {
+                const bucket = storage.bucket(process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET!);
+                const file = bucket.file(gcsPath);
+                console.log(`Attempting to delete file from GCS: gs://${bucket.name}/${gcsPath}`);
+                await file.delete();
+                console.log('File deleted from GCS successfully.');
+            } catch (storageError: any) {
+                console.error(`Failed to delete file from GCS: ${storageError.message}`);
+            }
+        }
+        await deleteDoc(projectRef);
+        console.log(`Project document ${input.projectId} deleted from Firestore.`);
+        return { success: true };
+    } catch (e: any) {
+        console.error(`Error in deleteProject action for ID ${input.projectId}:`, e);
+        return { error: `Failed to delete project: ${e.message}` };
+    }
+}
   
   export async function clipVideo(input: { videoUrl: string; startTime: string; endTime: string; }): Promise<{ clipDataUri?: string; error?: string }> {
       const { videoUrl, startTime, endTime } = input;
@@ -289,4 +324,49 @@ export async function analyzeProject(input: { projectId: string; videoUrl: strin
             await fs.promises.rm(tempDir, { recursive: true, force: true });
           }
       }
+  }
+
+  export async function updateProjectName(input: { projectId: string, newName: string }) {
+    try {
+        const projectRef = doc(db, 'projects', input.projectId);
+        await updateDoc(projectRef, { name: input.newName, lastModified: new Date() });
+        return { success: true };
+    } catch (e: any) {
+        return { error: `Failed to update project name: ${e.message}` };
+    }
+  }
+
+  export async function getVideoDuration(input: { videoUrl: string }): Promise<{ duration?: number; error?: string }> {
+    const { videoUrl } = input;
+    const tempId = `duration-${Date.now()}`;
+    const tempDir = path.join(os.tmpdir(), 'machete', tempId);
+    const videoPath = path.join(tempDir, 'input.mp4');
+
+    try {
+        await fs.promises.mkdir(tempDir, { recursive: true });
+
+        await new Promise<void>((resolve, reject) => {
+            ffmpeg(videoUrl)
+                .outputOptions('-c', 'copy')
+                .on('end', () => resolve())
+                .on('error', (err) => reject(new Error(`Failed to download video: ${err.message}`)))
+                .save(videoPath);
+        });
+
+        const duration = await new Promise<number>((resolve, reject) => {
+            ffmpeg.ffprobe(videoPath, (err, metadata) => {
+                if (err) return reject(new Error('Failed to get video duration.'));
+                resolve(metadata.format.duration || 0);
+            });
+        });
+
+        return { duration };
+
+    } catch (e: any) {
+        return { error: `An unexpected error occurred during duration check: ${e.message}` };
+    } finally {
+        if (fs.existsSync(tempDir)) {
+            await fs.promises.rm(tempDir, { recursive: true, force: true });
+        }
+    }
   }
