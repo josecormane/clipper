@@ -9,11 +9,12 @@ import { Button } from '@/components/ui/button';
 import { SceneCard } from '@/components/scene-card';
 import { TimelineView } from '@/components/timeline-view';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Loader2, Trash2, Download, Wand2, AlertTriangle } from 'lucide-react';
+import { Loader2, Trash2, Download, Wand2, AlertTriangle, RefreshCw } from 'lucide-react';
 import { saveAs } from 'file-saver';
 import { timeStringToSeconds, secondsToTimeString } from '@/lib/utils';
 import Link from 'next/link';
 import { Carousel, CarouselContent, CarouselItem } from '@/components/ui/carousel';
+import { ReprocessConfirmationModal } from '@/components/reprocess-confirmation-modal';
 
 type Scene = {
   id: number;
@@ -38,6 +39,8 @@ export default function ProjectPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [isReprocessing, setIsReprocessing] = useState(false);
+  const [isReprocessModalOpen, setIsReprocessModalOpen] = useState(false);
   const [videoDuration, setVideoDuration] = useState(0);
   
   const params = useParams();
@@ -49,6 +52,7 @@ export default function ProjectPage() {
   const projectId = params.id as string;
 
   const fetchProjectData = useCallback(async () => {
+    setIsLoading(true);
     const { project: data, error } = await getProject({ projectId });
     if (error || !data) {
       toast({ variant: 'destructive', title: 'Failed to load project', description: error || 'Project not found.' });
@@ -70,13 +74,13 @@ export default function ProjectPage() {
     fetchProjectData();
 
     const interval = setInterval(() => {
-      if (document.visibilityState === 'visible' && project?.status === 'analyzing') {
+      if (document.visibilityState === 'visible' && (project?.status === 'analyzing' || isReprocessing)) {
         fetchProjectData();
       }
     }, 5000);
 
     return () => clearInterval(interval);
-  }, [projectId, fetchProjectData, project?.status]);
+  }, [projectId, fetchProjectData, project?.status, isReprocessing]);
 
   const handleAnalyzeClick = async () => {
     if (!project) return;
@@ -87,6 +91,27 @@ export default function ProjectPage() {
       toast({ variant: 'destructive', title: 'Analysis Failed', description: error });
     }
     fetchProjectData();
+  };
+  
+  const handleReprocessConfirm = async () => {
+    if (!project) return;
+    setIsReprocessModalOpen(false);
+    setIsReprocessing(true);
+    setProject(p => p ? { ...p, scenes: [] } : null); // Clear scenes immediately
+    
+    toast({ title: "Reprocessing Started", description: "This may take a few minutes." });
+    
+    // Clear existing scenes on the backend
+    await updateProject({ projectId, scenes: [] });
+    
+    // Trigger re-analysis
+    const { error } = await analyzeProject({ projectId, videoUrl: project.originalVideoUrl });
+    if (error) {
+      toast({ variant: 'destructive', title: 'Reprocessing Failed', description: error });
+    }
+    
+    await fetchProjectData(); // Fetch the latest project data
+    setIsReprocessing(false);
   };
 
   const handleSegmentClick = (startTime: string, endTime: string) => {
@@ -194,16 +219,20 @@ export default function ProjectPage() {
     setIsDownloading(false);
   };
 
-  if (isLoading) return <div className="flex justify-center items-center h-screen"><Loader2 className="h-16 w-16 animate-spin" /></div>;
+  if (isLoading && !isReprocessing) return <div className="flex justify-center items-center h-screen"><Loader2 className="h-16 w-16 animate-spin" /></div>;
   if (!project) return null;
   
+  const showTimeline = project.scenes.length > 0 && videoDuration > 0 && !isReprocessing;
+
   return (
     <div className="flex flex-col h-screen">
       <header className="flex justify-between items-center p-4 border-b">
         <Link href="/">
           <Logo />
         </Link>
-        <Button variant="destructive" onClick={async () => { await deleteProject({ projectId }); router.push('/'); }}><Trash2 className="mr-2" />Delete</Button>
+        <div className="flex items-center space-x-2">
+          <Button variant="destructive" onClick={async () => { await deleteProject({ projectId }); router.push('/'); }}><Trash2 className="mr-2" />Delete</Button>
+        </div>
       </header>
 
       <main className="flex-grow p-6">
@@ -225,23 +254,30 @@ export default function ProjectPage() {
                   Analyze Project
                 </Button>
               )}
-              <Button onClick={handleDownloadAll} disabled={isDownloading}>
+              {project.status === 'analyzed' && (
+                 <Button variant="outline" onClick={() => setIsReprocessModalOpen(true)} disabled={isReprocessing}>
+                    {isReprocessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <RefreshCw className="mr-2"/>}
+                    Reprocess
+                </Button>
+              )}
+              <Button onClick={handleDownloadAll} disabled={isDownloading || isReprocessing || project.scenes.length === 0}>
                 {isDownloading ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Download className="mr-2"/>}
                 Download All Scenes
               </Button>
             </div>
           </div>
 
-          {project.scenes.length > 0 && videoDuration > 0 && (
+          {showTimeline && (
             <TimelineView videoRef={videoRef} scenes={project.scenes} duration={videoDuration} onSplit={handleSplit} onMerge={handleMerge} onSegmentClick={handleSegmentClick} />
           )}
 
-          {project.status === 'analyzing' && (
+          {(project.status === 'analyzing' || isReprocessing) && (
             <div className="flex flex-col items-center justify-center h-40">
               <Loader2 className="h-8 w-8 animate-spin text-primary"/>
-              <p className="mt-4 text-muted-foreground">Analyzing video...</p>
+              <p className="mt-4 text-muted-foreground">{isReprocessing ? 'Reprocessing video...' : 'Analyzing video...'}</p>
             </div>
           )}
+          
           {project.status === 'error' && (
             <Alert variant="destructive">
               <AlertTriangle className="h-4 w-4" />
@@ -254,7 +290,7 @@ export default function ProjectPage() {
         </div>
       </main>
       
-      {project.scenes.length > 0 && (
+      {showTimeline && (
         <footer className="w-full p-6 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
           <Carousel
             opts={{
@@ -275,6 +311,7 @@ export default function ProjectPage() {
           </Carousel>
         </footer>
       )}
+      <ReprocessConfirmationModal isOpen={isReprocessModalOpen} onClose={() => setIsReprocessModalOpen(false)} onConfirm={handleReprocessConfirm} />
     </div>
   );
 }
