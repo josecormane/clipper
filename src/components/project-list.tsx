@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Table, TableBody, TableCell, TableHeader, TableHead, TableRow } from '@/components/ui/table';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Eye, List, Grid, Trash, Edit, Save } from 'lucide-react';
+import { Eye, List, Grid, Trash, Edit, Save, ArrowUp, ArrowDown } from 'lucide-react';
 import { getAllProjects, deleteProject, updateProjectName } from '@/lib/actions'; 
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
@@ -20,25 +20,38 @@ type Project = {
     gcsPath?: string;
 };
 
+type SortConfig = {
+    key: 'name' | 'lastModified';
+    direction: 'asc' | 'desc';
+};
+
+const formatDuration = (seconds: number) => {
+    const h = Math.floor(seconds / 3600).toString().padStart(2, '0');
+    const m = Math.floor((seconds % 3600) / 60).toString().padStart(2, '0');
+    const s = Math.floor(seconds % 60).toString().padStart(2, '0');
+    return `${h}:${m}:${s}`;
+};
+
 export function ProjectList() {
     const [projects, setProjects] = useState<Project[]>([]);
     const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
     const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
     const [newProjectName, setNewProjectName] = useState<string>('');
+    const [sortConfig, setSortConfig] = useState<SortConfig>({ key: 'lastModified', direction: 'desc' });
     const router = useRouter();
 
-    const fetchProjects = async () => {
-        const { projects: fetchedProjects, error } = await getAllProjects();
+    const fetchProjects = useCallback(async () => {
+        const { projects: fetchedProjects, error } = await getAllProjects({ orderBy: sortConfig.key, orderDirection: sortConfig.direction });
         if (error) {
             console.error("Failed to fetch projects:", error);
         } else {
             setProjects(fetchedProjects || []);
         }
-    };
+    }, [sortConfig]);
 
     useEffect(() => {
         fetchProjects();
-    }, []);
+    }, [fetchProjects]);
 
     const handleDelete = async (e: React.MouseEvent, projectId: string) => {
         e.stopPropagation();
@@ -75,6 +88,19 @@ export function ProjectList() {
         }
     };
 
+    const requestSort = (key: 'name' | 'lastModified') => {
+        let direction: 'asc' | 'desc' = 'asc';
+        if (sortConfig.key === key && sortConfig.direction === 'asc') {
+            direction = 'desc';
+        }
+        setSortConfig({ key, direction });
+    };
+
+    const getSortIndicator = (key: 'name' | 'lastModified') => {
+        if (sortConfig.key !== key) return null;
+        return sortConfig.direction === 'asc' ? <ArrowUp className="h-4 w-4 inline ml-2" /> : <ArrowDown className="h-4 w-4 inline ml-2" />;
+    };
+
     return (
         <div>
             <div className="flex justify-end mb-4">
@@ -94,9 +120,19 @@ export function ProjectList() {
                     <Table>
                         <TableHeader>
                             <TableRow>
-                                <TableHead>Project Name</TableHead>
+                                <TableHead>
+                                    <Button variant="ghost" onClick={() => requestSort('name')}>
+                                        Project Name
+                                        {getSortIndicator('name')}
+                                    </Button>
+                                </TableHead>
                                 <TableHead>Duration</TableHead>
-                                <TableHead>Last Modified</TableHead>
+                                <TableHead>
+                                    <Button variant="ghost" onClick={() => requestSort('lastModified')}>
+                                        Last Modified
+                                        {getSortIndicator('lastModified')}
+                                    </Button>
+                                </TableHead>
                                 <TableHead>Actions</TableHead>
                             </TableRow>
                         </TableHeader>
@@ -116,7 +152,7 @@ export function ProjectList() {
                                             </Link>
                                         )}
                                     </TableCell>
-                                    <TableCell>{project.duration ? `${Math.round(project.duration)}s` : 'N/A'}</TableCell>
+                                    <TableCell>{project.duration ? formatDuration(project.duration) : 'N/A'}</TableCell>
                                     <TableCell>{project.lastModified ? new Date(project.lastModified).toLocaleString() : 'N/A'}</TableCell>
                                     <TableCell>
                                         <div className="flex space-x-2">
@@ -154,7 +190,7 @@ export function ProjectList() {
                                 </CardHeader>
                             </Link>
                             <CardContent>
-                                <p>Duration: {project.duration ? `${Math.round(project.duration)}s` : 'N/A'}</p>
+                                <p>Duration: {project.duration ? formatDuration(project.duration) : 'N/A'}</p>
                                 <p>Last Modified: {project.lastModified ? new Date(project.lastModified).toLocaleString() : 'N/A'}</p>
                                 <div className="flex space-x-2 mt-4">
                                     <Link href={`/project/${project.id}`}>

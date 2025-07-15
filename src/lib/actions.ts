@@ -11,6 +11,8 @@ import {
   getDocs,
   updateDoc,
   Timestamp,
+  query,
+  orderBy,
 } from 'firebase/firestore';
 import { z } from 'zod';
 import ffmpeg from 'fluent-ffmpeg';
@@ -49,9 +51,10 @@ const projectsCollection = collection(db, 'projects');
 
 // Server Actions
 
-export async function getAllProjects() {
+export async function getAllProjects(options?: { orderBy: 'name' | 'lastModified', orderDirection: 'asc' | 'desc' }) {
     try {
-      const snapshot = await getDocs(projectsCollection);
+      const q = options ? query(projectsCollection, orderBy(options.orderBy, options.orderDirection)) : projectsCollection;
+      const snapshot = await getDocs(q);
       const projects = snapshot.docs.map(serializeProject);
       return { projects };
     } catch (e: any) {
