@@ -17,6 +17,7 @@ import { timeStringToSeconds, secondsToTimeString } from '@/lib/utils'; // Impor
 import { Switch } from '@/components/ui/switch'; // Import Switch
 import { Label } from '@/components/ui/label'; // Import Label
 import { ScenesTableView } from '@/components/scenes-table-view'; // Import ScenesTableView
+import Link from 'next/link';
 
 type Scene = {
   id: number;
@@ -100,10 +101,7 @@ export default function ProjectPage() {
     const {error} = await generateThumbnails({ projectId, videoUrl: project.originalVideoUrl });
     if(error) {
         toast({ variant: 'destructive', title: 'Thumbnail Generation Failed', description: error });
-    } else {
-        toast({ title: 'Thumbnails generated successfully!' });
     }
-    setIsGeneratingThumbs(false);
     fetchProjectData();
   };
 
@@ -169,7 +167,7 @@ export default function ProjectPage() {
     const splitTimeStr = secondsToTimeString(splitTime);
 
     if (splitTimeStr <= sceneToSplit.startTime || splitTimeStr >= sceneToSplit.endTime) {
-      toast({ variant: 'destructive', title: 'Invalid split time' });
+      toast({ variant: 'destructive', title: 'Invalid split time', description: 'Split time must be between scene start and end times.' });
       return;
     }
 
@@ -225,8 +223,9 @@ export default function ProjectPage() {
   return (
     <div className="container mx-auto p-4 sm:p-6 lg:p-8">
       <header className="flex justify-between items-center mb-8">
-        <Button variant="ghost" onClick={() => router.push('/')}><ArrowLeft className="mr-2" />Back</Button>
-        <Logo />
+        <Link href="/">
+          <Logo />
+        </Link>
         <Button variant="destructive" onClick={async () => { await deleteProject({ projectId }); router.push('/'); }}><Trash2 className="mr-2"/>Delete</Button>
       </header>
 
@@ -235,7 +234,10 @@ export default function ProjectPage() {
           <Card>
             <CardHeader>
                 <div className="flex justify-between items-center">
-                    <CardTitle>{project.name}</CardTitle>
+                  <CardTitle className="flex items-center space-x-2">
+                      <img src="/machete-icon.png" alt="Machete Icon" className="h-6 w-6" />
+                      <span>{project.name}</span>
+                  </CardTitle>
                     {project.status === 'uploaded' && (
                         <Button onClick={handleAnalyzeClick}>
                             <Wand2 className="mr-2 h-4 w-4"/>

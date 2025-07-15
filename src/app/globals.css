@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 @layer base {
-  :root, .dark {
+  :root {
     --background: 0 0% 100%; /* solid white */
     --foreground: 0 0% 3.9%; /* solid black */
     
@@ -22,11 +22,10 @@
     --muted: 0 0% 96.1%;
     --muted-foreground: 0 0% 45.1%;
     
-    /* Accent is our blue gradient */
-    --accent-start: 217 91% 60%; /* rgb(59, 130, 246) */
-    --accent-end: 193 100% 50%; /* rgb(0, 217, 255) */
-    --accent: 217 91% 60%; /* Fallback for components that don't support gradients */
+    --accent: 217 91% 60%;
     --accent-foreground: 0 0% 98%;
+    --accent-start: 217 91% 60%;
+    --accent-end: 193 100% 50%;
     
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
@@ -36,6 +35,36 @@
     --ring: 217 91% 60%;
     
     --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 0 0% 3.9%; /* solid black */
+    --foreground: 0 0% 98%; /* solid white */
+    
+    --card: 0 0% 3.9%;
+    --card-foreground: 0 0% 98%;
+    
+    --popover: 0 0% 3.9%;
+    --popover-foreground: 0 0% 98%;
+    
+    --primary: 217 91% 60%;
+    --primary-foreground: 0 0% 98%;
+    
+    --secondary: 0 0% 14.9%;
+    --secondary-foreground: 0 0% 98%;
+    
+    --muted: 0 0% 14.9%;
+    --muted-foreground: 0 0% 63.9%;
+    
+    --accent: 217 91% 60%;
+    --accent-foreground: 0 0% 98%;
+    
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+    
+    --border: 0 0% 14.9%;
+    --input: 0 0% 14.9%;
+    --ring: 217 91% 60%;
   }
 
   * {
