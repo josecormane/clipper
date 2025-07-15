@@ -2,14 +2,14 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { getProject, updateProject, deleteProject, clipVideo, analyzeProject, generateThumbnails } from '@/lib/actions';
+import { getProject, updateProject, deleteProject, clipVideo, analyzeProject } from '@/lib/actions';
 import { useToast } from '@/hooks/use-toast';
 import { Logo } from '@/components/logo';
 import { Button } from '@/components/ui/button';
 import { SceneCard } from '@/components/scene-card';
 import { TimelineView } from '@/components/timeline-view';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Loader2, Trash2, Download, Wand2, AlertTriangle, Image as ImageIcon } from 'lucide-react';
+import { Loader2, Trash2, Download, Wand2, AlertTriangle } from 'lucide-react';
 import { saveAs } from 'file-saver';
 import { timeStringToSeconds, secondsToTimeString } from '@/lib/utils';
 import Link from 'next/link';
@@ -37,7 +37,6 @@ export default function ProjectPage() {
   const [project, setProject] = useState<Project | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [isGeneratingThumbs, setIsGeneratingThumbs] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [videoDuration, setVideoDuration] = useState(0);
   
@@ -86,17 +85,6 @@ export default function ProjectPage() {
     const { error } = await analyzeProject({ projectId, videoUrl: project.originalVideoUrl });
     if (error) {
       toast({ variant: 'destructive', title: 'Analysis Failed', description: error });
-    }
-    fetchProjectData();
-  };
-
-  const handleGenerateThumbnails = async () => {
-    if (!project) return;
-    setIsGeneratingThumbs(true);
-    toast({ title: "Generating Thumbnails", description: "This may take a moment..." });
-    const { error } = await generateThumbnails({ projectId, videoUrl: project.originalVideoUrl });
-    if (error) {
-      toast({ variant: 'destructive', title: 'Thumbnail Generation Failed', description: error });
     }
     fetchProjectData();
   };
@@ -235,12 +223,6 @@ export default function ProjectPage() {
                 <Button onClick={handleAnalyzeClick} disabled={isAnalyzing}>
                   {isAnalyzing ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Wand2 className="mr-2 h-4 w-4"/>}
                   Analyze Project
-                </Button>
-              )}
-              {project.status === 'analyzed' && (
-                <Button onClick={handleGenerateThumbnails} disabled={isGeneratingThumbs}>
-                  {isGeneratingThumbs ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <ImageIcon className="mr-2 h-4 w-4"/>}
-                  Generate Thumbnails
                 </Button>
               )}
               <Button onClick={handleDownloadAll} disabled={isDownloading}>

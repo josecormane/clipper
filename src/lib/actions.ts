@@ -113,59 +113,32 @@ export async function createProject(input: { projectName: string, gcsPath: strin
     }
 }
 
-export async function generateThumbnails(input: { projectId: string, videoUrl: string }) {
-    console.log(`Starting thumbnail generation for project ${input.projectId}`);
-    const { projectId, videoUrl } = input;
-    const projectRef = doc(db, 'projects', projectId);
-    const projectDoc = await getDoc(projectRef);
-    const projectData = projectDoc.data();
-
-    if (!projectData || !projectData.scenes || projectData.scenes.length === 0) {
-        console.error("No scenes found for thumbnail generation.");
-        return { error: "No scenes to generate thumbnails for." };
-    }
-
-    const tempDir = path.join(os.tmpdir(), 'machete', `thumbs-${Date.now()}`);
-    const videoPath = path.join(tempDir, 'input.mp4');
-
+export async function generateThumbnail(input: { videoPath: string, scene: any }) {
+    const { videoPath, scene } = input;
+    const tempDir = path.join(os.tmpdir(), 'machete', `thumb-${scene.id}-${Date.now()}`);
+    
     try {
         await fs.promises.mkdir(tempDir, { recursive: true });
-        console.log("Downloading video for thumbnail generation...");
+        
+        const frameOutputPath = path.join(tempDir, `thumb.jpg`);
         await new Promise<void>((resolve, reject) => {
-            ffmpeg(videoUrl).outputOptions('-c', 'copy').on('end', () => resolve()).on('error', (err) => reject(new Error(`Failed to download video: ${err.message}`))).save(videoPath);
+            ffmpeg(videoPath)
+                .setStartTime(scene.startTime)
+                .frames(1)
+                .on('end', () => resolve())
+                .on('error', (err) => reject(new Error(`Failed to capture frame: ${err.message}`)))
+                .save(frameOutputPath);
         });
-        console.log("Video downloaded successfully.");
 
-        const updatedScenes = await Promise.all(projectData.scenes.map(async (scene: any) => {
-            if (scene.thumbnail) return scene;
-            console.log(`Generating thumbnail for scene ${scene.id} at ${scene.startTime}`);
-            const frameOutputPath = path.join(tempDir, `thumb-${scene.id}.jpg`);
-            await new Promise<void>((resolve, reject) => {
-                ffmpeg(videoPath)
-                    .setStartTime(scene.startTime)
-                    .frames(1)
-                    .on('end', () => resolve())
-                    .on('error', (err) => reject(new Error(`Failed to capture frame for scene ${scene.id}: ${err.message}`)))
-                    .save(frameOutputPath);
-            });
-            
-            const thumbBuffer = await fs.promises.readFile(frameOutputPath);
-            const thumbnail = `data:image/jpeg;base64,${thumbBuffer.toString('base64')}`;
-            await fs.promises.unlink(frameOutputPath);
-            console.log(`Successfully generated thumbnail for scene ${scene.id}`);
-            return { ...scene, thumbnail };
-        }));
-
-        await updateDoc(projectRef, { scenes: updatedScenes, lastModified: new Date() });
-        console.log("All thumbnails generated and updated in Firestore.");
-        return { success: true };
-
+        const thumbBuffer = await fs.promises.readFile(frameOutputPath);
+        const thumbnail = `data:image/jpeg;base64,${thumbBuffer.toString('base64')}`;
+        return { thumbnail };
     } catch (e: any) {
-        console.error('Error generating thumbnails:', e);
+        console.error('Error generating thumbnail:', e);
         return { error: e.message };
     } finally {
         if (fs.existsSync(tempDir)) {
-          await fs.promises.rm(tempDir, { recursive: true, force: true });
+            await fs.promises.rm(tempDir, { recursive: true, force: true });
         }
     }
 }
@@ -201,12 +174,21 @@ export async function analyzeProject(input: { projectId: string; videoUrl: strin
         const chunkDataUri = `data:video/mp4;base64,${chunkBuffer.toString('base64')}`;
         const result = await processVideoChunkFlow({ videoDataUri: chunkDataUri });
         if (result && result.scenes) {
-          const adjustedScenes = result.scenes.map(scene => ({
-            id: sceneIdCounter++,
-            startTime: secondsToTimeString(timeStringToSeconds(scene.startTime) + chunkStartTime),
-            endTime: secondsToTimeString(timeStringToSeconds(scene.endTime) + chunkStartTime),
-            description: scene.description,
-          }));
+          const adjustedScenes: any[] = [];
+          for (const scene of result.scenes) {
+            const adjustedScene = {
+              id: sceneIdCounter++,
+              startTime: secondsToTimeString(timeStringToSeconds(scene.startTime) + chunkStartTime),
+              endTime: secondsToTimeString(timeStringToSeconds(scene.endTime) + chunkStartTime),
+              description: scene.description,
+              thumbnail: '',
+            };
+            const { thumbnail, error } = await generateThumbnail({ videoPath: videoPath, scene: adjustedScene });
+            if (thumbnail) {
+                adjustedScene.thumbnail = thumbnail;
+            }
+            adjustedScenes.push(adjustedScene);
+          }
           allScenes.push(...adjustedScenes);
         }
         await fs.promises.unlink(chunkOutputPath);
