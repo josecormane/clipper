@@ -40,6 +40,7 @@ const serializeProject = (doc: any) => {
         id: doc.id,
         ...data,
         createdAt: data.createdAt instanceof Timestamp ? data.createdAt.toDate().toISOString() : data.createdAt,
+        lastModified: data.lastModified instanceof Timestamp ? data.lastModified.toDate().toISOString() : data.lastModified,
     };
 };
 
@@ -47,6 +48,16 @@ const serializeProject = (doc: any) => {
 const projectsCollection = collection(db, 'projects');
 
 // Server Actions
+
+export async function getAllProjects() {
+    try {
+      const snapshot = await getDocs(projectsCollection);
+      const projects = snapshot.docs.map(serializeProject);
+      return { projects };
+    } catch (e: any) {
+      return { error: `Failed to fetch projects: ${e.message}` };
+    }
+}
 
 export async function getUploadUrl(input: { fileName: string, contentType: string }) {
     const { fileName, contentType } = input;
@@ -67,35 +78,41 @@ export async function getUploadUrl(input: { fileName: string, contentType: strin
 }
 
 
-export async function createProject(input: { projectName: string, gcsPath: string }) {
+export async function createProject(input: { projectName: string, gcsPath: string }): Promise<{ projectId: string } | { error: string }> {
     const { projectName, gcsPath } = input;
-    
-    const bucket = storage.bucket(process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET!);
-    const file = bucket.file(gcsPath);
-    const [videoUrl] = await file.getSignedUrl({
-      action: 'read',
-      expires: '03-09-2491',
-    });
+    try {
+        const bucket = storage.bucket(process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET!);
+        const file = bucket.file(gcsPath);
+        const [videoUrl] = await file.getSignedUrl({
+          action: 'read',
+          expires: '03-09-2491',
+        });
 
-    const projectDoc = await addDoc(projectsCollection, {
-      name: projectName,
-      originalVideoUrl: videoUrl,
-      gcsPath: gcsPath,
-      createdAt: new Date(),
-      scenes: [],
-      status: 'uploaded',
-    });
+        const projectDoc = await addDoc(projectsCollection, {
+          name: projectName,
+          originalVideoUrl: videoUrl,
+          gcsPath: gcsPath,
+          createdAt: new Date(),
+          lastModified: new Date(),
+          scenes: [],
+          status: 'uploaded',
+        });
 
-    return { projectId: projectDoc.id };
+        return { projectId: projectDoc.id };
+    } catch (e: any) {
+        return { error: `Failed to create project: ${e.message}` };
+    }
 }
 
 export async function generateThumbnails(input: { projectId: string, videoUrl: string }) {
+    console.log(`Starting thumbnail generation for project ${input.projectId}`);
     const { projectId, videoUrl } = input;
     const projectRef = doc(db, 'projects', projectId);
     const projectDoc = await getDoc(projectRef);
     const projectData = projectDoc.data();
 
     if (!projectData || !projectData.scenes || projectData.scenes.length === 0) {
+        console.error("No scenes found for thumbnail generation.");
         return { error: "No scenes to generate thumbnails for." };
     }
 
@@ -104,31 +121,34 @@ export async function generateThumbnails(input: { projectId: string, videoUrl: s
 
     try {
         await fs.promises.mkdir(tempDir, { recursive: true });
-
+        console.log("Downloading video for thumbnail generation...");
         await new Promise<void>((resolve, reject) => {
             ffmpeg(videoUrl).outputOptions('-c', 'copy').on('end', () => resolve()).on('error', (err) => reject(new Error(`Failed to download video: ${err.message}`))).save(videoPath);
         });
+        console.log("Video downloaded successfully.");
 
         const updatedScenes = await Promise.all(projectData.scenes.map(async (scene: any) => {
             if (scene.thumbnail) return scene;
-
+            console.log(`Generating thumbnail for scene ${scene.id} at ${scene.startTime}`);
             const frameOutputPath = path.join(tempDir, `thumb-${scene.id}.jpg`);
             await new Promise<void>((resolve, reject) => {
                 ffmpeg(videoPath)
                     .setStartTime(scene.startTime)
                     .frames(1)
                     .on('end', () => resolve())
-                    .on('error', (err) => reject(new Error(`Failed to capture frame: ${err.message}`)))
+                    .on('error', (err) => reject(new Error(`Failed to capture frame for scene ${scene.id}: ${err.message}`)))
                     .save(frameOutputPath);
             });
             
             const thumbBuffer = await fs.promises.readFile(frameOutputPath);
             const thumbnail = `data:image/jpeg;base64,${thumbBuffer.toString('base64')}`;
             await fs.promises.unlink(frameOutputPath);
+            console.log(`Successfully generated thumbnail for scene ${scene.id}`);
             return { ...scene, thumbnail };
         }));
 
-        await updateDoc(projectRef, { scenes: updatedScenes });
+        await updateDoc(projectRef, { scenes: updatedScenes, lastModified: new Date() });
+        console.log("All thumbnails generated and updated in Firestore.");
         return { success: true };
 
     } catch (e: any) {
@@ -141,154 +161,132 @@ export async function generateThumbnails(input: { projectId: string, videoUrl: s
     }
 }
 
+// ... (rest of actions are the same)
 export async function analyzeProject(input: { projectId: string; videoUrl: string }) {
-  const { projectId, videoUrl } = input;
-  const projectRef = doc(db, 'projects', projectId);
-  
-  await updateDoc(projectRef, { status: 'analyzing' });
-
-  const tempId = `analysis-${Date.now()}`;
-  const tempDir = path.join(os.tmpdir(), 'machete', tempId);
-  const videoPath = path.join(tempDir, 'input.mp4');
-
-  try {
-    await fs.promises.mkdir(tempDir, { recursive: true });
-
-    await new Promise<void>((resolve, reject) => {
-        ffmpeg(videoUrl)
-            .outputOptions('-c', 'copy')
-            .on('end', () => resolve())
-            .on('error', (err) => reject(new Error(`Failed to download video from GCS: ${err.message}`)))
-            .save(videoPath);
-    });
-
-    const videoDuration = await new Promise<number>((resolve, reject) => {
-      ffmpeg.ffprobe(videoPath, (err, metadata) => {
-        if (err) return reject(new Error('Failed to get video duration.'));
-        resolve(metadata.format.duration || 0);
-      });
-    });
-
-    const CHUNK_DURATION_SECONDS = 240;
-    const allScenes: any[] = [];
-    let sceneIdCounter = 1;
-
-    for (let i = 0; i < videoDuration; i += CHUNK_DURATION_SECONDS) {
-      const chunkStartTime = i;
-      const chunkOutputPath = path.join(tempDir, `chunk-${i}.mp4`);
-      
-      await new Promise<void>((resolve, reject) => {
-        ffmpeg(videoPath)
-          .setStartTime(chunkStartTime)
-          .setDuration(CHUNK_DURATION_SECONDS)
-          .outputOptions('-c', 'copy')
-          .on('end', () => resolve())
-          .on('error', (err) => reject(new Error(`ffmpeg failed to create chunk: ${err.message}`)))
-          .save(chunkOutputPath);
-      });
-
-      const chunkBuffer = await fs.promises.readFile(chunkOutputPath);
-      const chunkDataUri = `data:video/mp4;base64,${chunkBuffer.toString('base64')}`;
-      
-      const result = await processVideoChunkFlow({ videoDataUri: chunkDataUri });
-
-      if (result && result.scenes) {
-        const adjustedScenes = result.scenes.map(scene => ({
-          id: sceneIdCounter++,
-          startTime: secondsToTimeString(timeStringToSeconds(scene.startTime) + chunkStartTime),
-          endTime: secondsToTimeString(timeStringToSeconds(scene.endTime) + chunkStartTime),
-          description: scene.description,
-        }));
-        allScenes.push(...adjustedScenes);
-      }
-      await fs.promises.unlink(chunkOutputPath);
-    }
-    
-    await updateDoc(projectRef, { scenes: allScenes, status: 'analyzed' });
-    return { success: true };
-
-  } catch (e: any) {
-    console.error(`Background analysis for project ${projectId} failed:`, e);
-    await updateDoc(projectRef, { status: 'error', analysisError: e.message });
-    return { error: e.message };
-  } finally {
-    if (fs.existsSync(tempDir)) {
-      await fs.promises.rm(tempDir, { recursive: true, force: true });
-    }
-  }
-}
-
-export async function getProjects() {
-  try {
-    const snapshot = await getDocs(projectsCollection);
-    const projects = snapshot.docs.map(serializeProject);
-    return { projects };
-  } catch (e: any) {
-    return { error: `Failed to fetch projects: ${e.message}` };
-  }
-}
-
-export async function getProject(input: { projectId: string }) {
-    try {
-        const projectDoc = await getDoc(doc(db, 'projects', input.projectId));
-        if (!projectDoc.exists()) return { error: 'Project not found.' };
-        return { project: serializeProject(projectDoc) };
-    } catch (e: any) {
-        return { error: `Failed to fetch project: ${e.message}` };
-    }
-}
-
-export async function updateProject(input: { projectId: string, scenes: any[] }) {
-    try {
-        const projectRef = doc(db, 'projects', input.projectId);
-        await updateDoc(projectRef, { scenes: input.scenes });
-        return { success: true };
-    } catch (e: any) {
-        return { error: `Failed to update project: ${e.message}` };
-    }
-}
-
-export async function deleteProject(input: { projectId: string }) {
-    try {
-        await deleteDoc(doc(db, 'projects', input.projectId));
-        return { success: true };
-    } catch (e: any) {
-        return { error: `Failed to delete project: ${e.message}` };
-    }
-}
-
-export async function clipVideo(input: { videoUrl: string; startTime: string; endTime: string; }) {
-    const { videoUrl, startTime, endTime } = input;
-    const tempId = `clip-${Date.now()}`;
+    const { projectId, videoUrl } = input;
+    const projectRef = doc(db, 'projects', projectId);
+    await updateDoc(projectRef, { status: 'analyzing', lastModified: new Date() });
+    const tempId = `analysis-${Date.now()}`;
     const tempDir = path.join(os.tmpdir(), 'machete', tempId);
-    const outputPath = path.join(tempDir, 'output.mp4');
-  
+    const videoPath = path.join(tempDir, 'input.mp4');
     try {
-        await fs.promises.mkdir(tempDir, { recursive: true });
-
-        const duration = timeStringToSeconds(endTime) - timeStringToSeconds(startTime);
-        if (duration <= 0) return { error: 'End time must be after start time.' };
-
-        await new Promise<void>((resolve, reject) => {
-            ffmpeg(videoUrl)
-                .setStartTime(startTime)
-                .setDuration(duration)
-                .outputOptions('-c', 'copy')
-                .on('end', () => resolve())
-                .on('error', (err) => reject(new Error(`ffmpeg failed to clip: ${err.message}`)))
-                .save(outputPath);
+      await fs.promises.mkdir(tempDir, { recursive: true });
+      await new Promise<void>((resolve, reject) => {
+          ffmpeg(videoUrl).outputOptions('-c', 'copy').on('end', () => resolve()).on('error', (err) => reject(new Error(`Failed to download video from GCS: ${err.message}`))).save(videoPath);
+      });
+      const videoDuration = await new Promise<number>((resolve, reject) => {
+        ffmpeg.ffprobe(videoPath, (err, metadata) => {
+          if (err) return reject(new Error('Failed to get video duration.'));
+          resolve(metadata.format.duration || 0);
         });
-        
-        const clipBuffer = await fs.promises.readFile(outputPath);
-        const clipDataUri = `data:video/mp4;base64,${clipBuffer.toString('base64')}`;
-
-        return { clipDataUri };
-
-    } catch (e: any) {
-        return { error: `An unexpected error occurred during clipping: ${e.message}` };
-    } finally {
-        if (fs.existsSync(tempDir)) {
-          await fs.promises.rm(tempDir, { recursive: true, force: true });
+      });
+      const CHUNK_DURATION_SECONDS = 240;
+      const allScenes: any[] = [];
+      let sceneIdCounter = 1;
+      for (let i = 0; i < videoDuration; i += CHUNK_DURATION_SECONDS) {
+        const chunkStartTime = i;
+        const chunkOutputPath = path.join(tempDir, `chunk-${i}.mp4`);
+        await new Promise<void>((resolve, reject) => {
+          ffmpeg(videoPath).setStartTime(chunkStartTime).setDuration(CHUNK_DURATION_SECONDS).outputOptions('-c', 'copy').on('end', () => resolve()).on('error', (err) => reject(new Error(`ffmpeg failed to create chunk: ${err.message}`))).save(chunkOutputPath);
+        });
+        const chunkBuffer = await fs.promises.readFile(chunkOutputPath);
+        const chunkDataUri = `data:video/mp4;base64,${chunkBuffer.toString('base64')}`;
+        const result = await processVideoChunkFlow({ videoDataUri: chunkDataUri });
+        if (result && result.scenes) {
+          const adjustedScenes = result.scenes.map(scene => ({
+            id: sceneIdCounter++,
+            startTime: secondsToTimeString(timeStringToSeconds(scene.startTime) + chunkStartTime),
+            endTime: secondsToTimeString(timeStringToSeconds(scene.endTime) + chunkStartTime),
+            description: scene.description,
+          }));
+          allScenes.push(...adjustedScenes);
         }
+        await fs.promises.unlink(chunkOutputPath);
+      }
+      await updateDoc(projectRef, { scenes: allScenes, status: 'analyzed', lastModified: new Date() });
+      return { success: true };
+    } catch (e: any) {
+      console.error(`Background analysis for project ${projectId} failed:`, e);
+      await updateDoc(projectRef, { status: 'error', analysisError: e.message });
+      return { error: e.message };
+    } finally {
+      if (fs.existsSync(tempDir)) {
+        await fs.promises.rm(tempDir, { recursive: true, force: true });
+      }
     }
-}
+  }
+  
+  export async function getProjects() {
+    try {
+      const snapshot = await getDocs(projectsCollection);
+      const projects = snapshot.docs.map(serializeProject);
+      return { projects };
+    } catch (e: any) {
+      return { error: `Failed to fetch projects: ${e.message}` };
+    }
+  }
+  
+  export async function getProject(input: { projectId: string }) {
+      try {
+          const projectDoc = await getDoc(doc(db, 'projects', input.projectId));
+          if (!projectDoc.exists()) return { error: 'Project not found.' };
+          return { project: serializeProject(projectDoc) };
+      } catch (e: any) {
+          return { error: `Failed to fetch project: ${e.message}` };
+      }
+  }
+  
+  export async function updateProject(input: { projectId: string, scenes: any[] }) {
+      try {
+          const projectRef = doc(db, 'projects', input.projectId);
+          await updateDoc(projectRef, { scenes: input.scenes, lastModified: new Date() });
+          return { success: true };
+      } catch (e: any) {
+          return { error: `Failed to update project: ${e.message}` };
+      }
+  }
+  
+  export async function deleteProject(input: { projectId: string }) {
+      try {
+          await deleteDoc(doc(db, 'projects', input.projectId));
+          return { success: true };
+      } catch (e: any) {
+          return { error: `Failed to delete project: ${e.message}` };
+      }
+  }
+  
+  export async function clipVideo(input: { videoUrl: string; startTime: string; endTime: string; }): Promise<{ clipDataUri?: string; error?: string }> {
+      const { videoUrl, startTime, endTime } = input;
+      const tempId = `clip-${Date.now()}`;
+      const tempDir = path.join(os.tmpdir(), 'machete', tempId);
+      const outputPath = path.join(tempDir, 'output.mp4');
+    
+      try {
+          await fs.promises.mkdir(tempDir, { recursive: true });
+  
+          const duration = timeStringToSeconds(endTime) - timeStringToSeconds(startTime);
+          if (duration <= 0) return { error: 'End time must be after start time.' };
+  
+          await new Promise<void>((resolve, reject) => {
+              ffmpeg(videoUrl)
+                  .setStartTime(startTime)
+                  .setDuration(duration)
+                  .outputOptions('-c', 'copy')
+                  .on('end', () => resolve())
+                  .on('error', (err) => reject(new Error(`ffmpeg failed to clip: ${err.message}`)))
+                  .save(outputPath);
+          });
+          
+          const clipBuffer = await fs.promises.readFile(outputPath);
+          const clipDataUri = `data:video/mp4;base64,${clipBuffer.toString('base64')}`;
+  
+          return { clipDataUri };
+  
+      } catch (e: any) {
+          return { error: `An unexpected error occurred during clipping: ${e.message}` };
+      } finally {
+          if (fs.existsSync(tempDir)) {
+            await fs.promises.rm(tempDir, { recursive: true, force: true });
+          }
+      }
+  }

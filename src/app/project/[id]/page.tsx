@@ -14,6 +14,9 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Loader2, ArrowLeft, Trash2, Download, Wand2, AlertTriangle, Image as ImageIcon } from 'lucide-react';
 import { saveAs } from 'file-saver';
 import { timeStringToSeconds, secondsToTimeString } from '@/lib/utils'; // Import helpers
+import { Switch } from '@/components/ui/switch'; // Import Switch
+import { Label } from '@/components/ui/label'; // Import Label
+import { ScenesTableView } from '@/components/scenes-table-view'; // Import ScenesTableView
 
 type Scene = {
   id: number;
@@ -41,6 +44,7 @@ export default function ProjectPage() {
   const [isDownloading, setIsDownloading] = useState(false);
   const [videoDuration, setVideoDuration] = useState(0);
   const [selectedScenes, setSelectedScenes] = useState<Set<number>>(new Set());
+  const [viewMode, setViewMode] = useState<'card' | 'table'>('card'); // New state for view mode
   
   const params = useParams();
   const router = useRouter();
@@ -199,12 +203,12 @@ export default function ProjectPage() {
 
     const scenesToDownload = project.scenes.filter(s => selectedScenes.has(s.id));
     for (const scene of scenesToDownload) {
-      const { clipDataUri, error } = await clipVideo({ videoUrl: project.originalVideoUrl, startTime: scene.startTime, endTime: scene.endTime });
-      if (error || !clipDataUri) {
-        toast({ variant: 'destructive', title: `Failed to clip scene ${scene.id}`, description: error });
+      const clipResult = await clipVideo({ videoUrl: project.originalVideoUrl, startTime: scene.startTime, endTime: scene.endTime });
+      if (clipResult.error) {
+        toast({ variant: 'destructive', title: `Failed to clip scene ${scene.id}`, description: clipResult.error });
         continue;
       }
-      saveAs(clipDataUri, `${project.name}-scene-${scene.id}.mp4`);
+      saveAs(clipResult.clipDataUri!, `${project.name}-scene-${scene.id}.mp4`);
     }
     setIsDownloading(false);
   };
@@ -257,6 +261,14 @@ export default function ProjectPage() {
                 <CardHeader>
                     <div className="flex justify-between items-center">
                         <CardTitle>Scenes</CardTitle>
+                        <div className="flex items-center space-x-2">
+                            <Label htmlFor="view-mode-switch">Table View</Label>
+                            <Switch
+                                id="view-mode-switch"
+                                checked={viewMode === 'table'}
+                                onCheckedChange={(checked) => setViewMode(checked ? 'table' : 'card')}
+                            />
+                        </div>
                         {project.status === 'analyzed' && (
                             <Button onClick={handleGenerateThumbnails} disabled={isGeneratingThumbs}>
                                 {isGeneratingThumbs ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <ImageIcon className="mr-2 h-4 w-4"/>}
@@ -281,23 +293,37 @@ export default function ProjectPage() {
                             </AlertDescription>
                         </Alert>
                     )}
-                    <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-2">
-                        {project.scenes.map(scene => (
-                            <div key={scene.id} className="flex items-center space-x-2">
-                                <Checkbox id={`scene-${scene.id}`} onCheckedChange={(checked) => {
-                                    setSelectedScenes(prev => {
-                                        const newSelection = new Set(prev);
-                                        if (checked) newSelection.add(scene.id);
-                                        else newSelection.delete(scene.id);
-                                        return newSelection;
-                                    });
-                                }}/>
-                                <div className="flex-grow">
-                                    <SceneCard scene={scene} onUpdate={handleSceneUpdate} onPreview={handlePreview} videoRef={videoRef} />
+                    {viewMode === 'card' ? (
+                        <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-2">
+                            {project.scenes.map(scene => (
+                                <div key={scene.id} className="flex items-center space-x-2">
+                                    <Checkbox id={`scene-${scene.id}`} onCheckedChange={(checked) => {
+                                        setSelectedScenes(prev => {
+                                            const newSelection = new Set(prev);
+                                            if (checked) newSelection.add(scene.id);
+                                            else newSelection.delete(scene.id);
+                                            return newSelection;
+                                        });
+                                    }}/>
+                                    <div className="flex-grow">
+                                        <SceneCard scene={scene} onUpdate={handleSceneUpdate} onPreview={handlePreview} videoRef={videoRef} />
+                                    </div>
                                 </div>
-                            </div>
-                        ))}
-                    </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <ScenesTableView 
+                            scenes={project.scenes} 
+                            onUpdate={handleSceneUpdate} 
+                            onPreview={handlePreview} 
+                            onSplit={handleSplit}
+                            onMerge={handleMerge}
+                            onSegmentClick={handleSegmentClick}
+                            selectedScenes={selectedScenes}
+                            setSelectedScenes={setSelectedScenes}
+                            videoRef={videoRef}
+                        />
+                    )}
                     {project.scenes.length > 0 && (
                         <Button className="w-full mt-4" onClick={handleDownload} disabled={isDownloading || selectedScenes.size === 0}>
                             {isDownloading ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Download className="mr-2"/>}
