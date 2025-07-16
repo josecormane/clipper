@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { getProject, updateProject, deleteProject, clipVideo, analyzeProject } from '@/lib/actions';
+import { getProject, updateProject, deleteProject, clipVideo, analyzeProject, generateThumbnail } from '@/lib/actions';
 import { useToast } from '@/hooks/use-toast';
 import { Logo } from '@/components/logo';
 import { Button } from '@/components/ui/button';
@@ -13,7 +13,7 @@ import { Loader2, Trash2, Download, Wand2, AlertTriangle, RefreshCw } from 'luci
 import { saveAs } from 'file-saver';
 import { timeStringToSeconds, secondsToTimeString } from '@/lib/utils';
 import Link from 'next/link';
-import { Carousel, CarouselContent, CarouselItem } from '@/components/ui/carousel';
+import { Carousel, CarouselContent, CarouselItem, type CarouselApi } from '@/components/ui/carousel';
 import { ReprocessConfirmationModal } from '@/components/reprocess-confirmation-modal';
 
 type Scene = {
@@ -42,14 +42,22 @@ export default function ProjectPage() {
   const [isReprocessing, setIsReprocessing] = useState(false);
   const [isReprocessModalOpen, setIsReprocessModalOpen] = useState(false);
   const [videoDuration, setVideoDuration] = useState(0);
+  const [carouselApi, setCarouselApi] = useState<CarouselApi>()
+  const [isUserInteracting, setIsUserInteracting] = useState(false);
+  const [targetSceneIndex, setTargetSceneIndex] = useState(0);
   
   const params = useParams();
+  const projectId = params.id as string;
   const router = useRouter();
   const { toast } = useToast();
   const videoRef = useRef<HTMLVideoElement>(null);
   const stopPlaybackRef = useRef<(() => void) | null>(null);
+  const sceneCardRefs = useRef<{ [key: number]: HTMLDivElement | null }>({});
+  const projectRef = useRef(project);
 
-  const projectId = params.id as string;
+  useEffect(() => {
+    projectRef.current = project;
+  }, [project]);
 
   const fetchProjectData = useCallback(async () => {
     setIsLoading(true);
@@ -82,6 +90,60 @@ export default function ProjectPage() {
     return () => clearInterval(interval);
   }, [projectId, fetchProjectData, project?.status, isReprocessing]);
 
+  useEffect(() => {
+    if (!carouselApi) return;
+    
+    if (targetSceneIndex !== carouselApi.selectedScrollSnap()) {
+      carouselApi.scrollTo(targetSceneIndex, true);
+    }
+  }, [targetSceneIndex, carouselApi]);
+
+  useEffect(() => {
+    if (!videoRef.current || !projectRef.current?.scenes.length || !carouselApi) {
+      return;
+    }
+    
+    let timeout: NodeJS.Timeout;
+
+    const handleTimeUpdate = () => {
+      if (isUserInteracting) return;
+      if (timeout) clearTimeout(timeout);
+      timeout = setTimeout(() => {
+        if (!videoRef.current || !projectRef.current?.scenes.length) return;
+        
+        const currentTime = videoRef.current.currentTime;
+        const currentSceneIndex = projectRef.current.scenes.findIndex(scene => {
+          const start = timeStringToSeconds(scene.startTime);
+          const end = timeStringToSeconds(scene.endTime);
+          return currentTime >= start && currentTime < end;
+        });
+
+        if (currentSceneIndex !== -1) {
+          setTargetSceneIndex(currentSceneIndex);
+        }
+      }, 200);
+    };
+
+    const onPointerDown = () => setIsUserInteracting(true);
+    const onSettle = () => {
+      setIsUserInteracting(false);
+      setTargetSceneIndex(carouselApi.selectedScrollSnap());
+    };
+
+    videoRef.current.addEventListener("timeupdate", handleTimeUpdate);
+    carouselApi.on("pointerDown", onPointerDown);
+    carouselApi.on("settle", onSettle);
+
+    return () => {
+      if (videoRef.current) {
+        videoRef.current.removeEventListener("timeupdate", handleTimeUpdate);
+      }
+      if (timeout) clearTimeout(timeout);
+      carouselApi.off("pointerDown", onPointerDown);
+      carouselApi.off("settle", onSettle);
+    };
+  }, [carouselApi, isUserInteracting]);
+
   const handleAnalyzeClick = async () => {
     if (!project) return;
     setIsAnalyzing(true);
@@ -97,25 +159,21 @@ export default function ProjectPage() {
     if (!project) return;
     setIsReprocessModalOpen(false);
     setIsReprocessing(true);
-    setProject(p => p ? { ...p, scenes: [] } : null); // Clear scenes immediately
+    setProject(p => p ? { ...p, scenes: [] } : null);
     
-    toast({ title: "Reprocessing Started", description: "This may take a few minutes." });
-    
-    // Clear existing scenes on the backend
     await updateProject({ projectId, scenes: [] });
     
-    // Trigger re-analysis
     const { error } = await analyzeProject({ projectId, videoUrl: project.originalVideoUrl });
     if (error) {
       toast({ variant: 'destructive', title: 'Reprocessing Failed', description: error });
     }
     
-    await fetchProjectData(); // Fetch the latest project data
+    await fetchProjectData();
     setIsReprocessing(false);
   };
 
   const handleSegmentClick = (startTime: string, endTime: string) => {
-    if (!videoRef.current) return;
+    if (!videoRef.current || !project) return;
 
     if (stopPlaybackRef.current) {
       stopPlaybackRef.current();
@@ -139,6 +197,13 @@ export default function ProjectPage() {
     };
 
     video.addEventListener("timeupdate", checkTime);
+
+    const clickedSceneIndex = project.scenes.findIndex(
+      (s) => s.startTime === startTime && s.endTime === endTime
+    );
+    if (clickedSceneIndex !== undefined && clickedSceneIndex !== -1) {
+      setTargetSceneIndex(clickedSceneIndex);
+    }
   };
   
   const autosave = useCallback(async (scenes: Scene[]) => {
@@ -147,28 +212,22 @@ export default function ProjectPage() {
     await updateProject({ projectId, scenes });
   }, [project, projectId]);
 
-  const handleSceneUpdate = useCallback((updatedScene: Scene) => {
-    if (!project) return;
-    let newScenes = project.scenes.map(s => (s.id === updatedScene.id ? updatedScene : s));
+  const handleScenesUpdate = useCallback((updatedScenes: Scene[]) => {
+    if (!projectRef.current) return;
     
-    const sceneIndex = newScenes.findIndex(s => s.id === updatedScene.id);
-    if (sceneIndex > 0) {
-      const prevScene = newScenes[sceneIndex - 1];
-      if (prevScene.endTime !== updatedScene.startTime) {
-        newScenes[sceneIndex - 1] = { ...prevScene, endTime: updatedScene.startTime };
+    let newScenes = [...projectRef.current.scenes];
+    updatedScenes.forEach(updatedScene => {
+      const index = newScenes.findIndex(s => s.id === updatedScene.id);
+      if (index !== -1) {
+        newScenes[index] = updatedScene;
       }
-    }
-    if (sceneIndex < newScenes.length - 1) {
-      const nextScene = newScenes[sceneIndex + 1];
-      if (nextScene.startTime !== updatedScene.endTime) {
-        newScenes[sceneIndex + 1] = { ...nextScene, startTime: updatedScene.endTime };
-      }
-    }
-    autosave(newScenes);
-  }, [project, autosave]);
+    });
 
-  const handleSplit = useCallback((sceneId: number, splitTime: number) => {
-    if (!project || !sceneId) return;
+    autosave(newScenes);
+  }, [autosave]);
+
+  const handleSplit = useCallback(async (sceneId: number, splitTime: number) => {
+    if (!project) return;
     const sceneToSplitIndex = project.scenes.findIndex(s => s.id === sceneId);
     if (sceneToSplitIndex === -1) return;
 
@@ -182,6 +241,16 @@ export default function ProjectPage() {
 
     const newScene: Scene = { id: Date.now(), startTime: splitTimeStr, endTime: sceneToSplit.endTime, description: "New scene" };
     const updatedOldScene = { ...sceneToSplit, endTime: splitTimeStr };
+
+    const { thumbnail: newSceneThumbnail } = await generateThumbnail({ videoPath: project.originalVideoUrl, scene: { ...newScene, startTime: newScene.startTime } });
+    if (newSceneThumbnail) {
+      newScene.thumbnail = newSceneThumbnail;
+    }
+
+    const { thumbnail: updatedOldSceneThumbnail } = await generateThumbnail({ videoPath: project.originalVideoUrl, scene: { ...updatedOldScene, startTime: updatedOldScene.startTime } });
+    if (updatedOldSceneThumbnail) {
+      updatedOldScene.thumbnail = updatedOldSceneThumbnail;
+    }
     
     let newScenes = [...project.scenes];
     newScenes[sceneToSplitIndex] = updatedOldScene;
@@ -191,7 +260,7 @@ export default function ProjectPage() {
   }, [project, autosave, toast]);
 
   const handleMerge = useCallback((sceneIds: number[]) => {
-    if (!project || sceneIds.length < 2) return;
+    if (!project) return;
     const scenesToMerge = project.scenes.filter(s => sceneIds.includes(s.id)).sort((a,b) => timeStringToSeconds(a.startTime) - timeStringToSeconds(b.startTime));
     if (scenesToMerge.length < 2) return;
 
@@ -268,7 +337,7 @@ export default function ProjectPage() {
           </div>
 
           {showTimeline && (
-            <TimelineView videoRef={videoRef} scenes={project.scenes} duration={videoDuration} onSplit={handleSplit} onMerge={handleMerge} onSegmentClick={handleSegmentClick} />
+            <TimelineView videoRef={videoRef} scenes={project.scenes} duration={videoDuration} onSplit={handleSplit} onMerge={handleMerge} onSegmentClick={handleSegmentClick} onScenesUpdate={handleScenesUpdate} />
           )}
 
           {(project.status === 'analyzing' || isReprocessing) && (
@@ -293,6 +362,7 @@ export default function ProjectPage() {
       {showTimeline && (
         <footer className="w-full p-6 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
           <Carousel
+            setApi={setCarouselApi}
             opts={{
               align: "start",
               slidesToScroll: "auto",
@@ -300,10 +370,10 @@ export default function ProjectPage() {
             className="w-full max-w-full"
           >
             <CarouselContent>
-              {project.scenes.map((scene) => (
-                <CarouselItem key={scene.id} className="md:basis-1/2 lg:basis-1/3 xl:basis-1/4">
-                  <div className="p-1">
-                    <SceneCard scene={scene} onUpdate={handleSceneUpdate} onPreview={() => handleSegmentClick(scene.startTime, scene.endTime)} videoRef={videoRef} />
+              {project.scenes.map((scene, index) => (
+                <CarouselItem key={scene.id} className="md:basis-1/2 lg/basis-1/3 xl:basis-1/4">
+                  <div ref={(el) => { sceneCardRefs.current[index] = el; }} className="p-1">
+                    <SceneCard scene={scene} onUpdate={() => {}} onPreview={() => handleSegmentClick(scene.startTime, scene.endTime)} videoRef={videoRef} />
                   </div>
                 </CarouselItem>
               ))}
