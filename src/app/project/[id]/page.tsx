@@ -287,6 +287,12 @@ export default function ProjectPage() {
     }
     setIsDownloading(false);
   };
+  
+  const handleTimeUpdateFromTimeline = (time: number) => {
+    if (videoRef.current) {
+      videoRef.current.currentTime = time;
+    }
+  };
 
   if (isLoading && !isReprocessing) return <div className="flex justify-center items-center h-screen"><Loader2 className="h-16 w-16 animate-spin" /></div>;
   if (!project) return null;
@@ -337,7 +343,16 @@ export default function ProjectPage() {
           </div>
 
           {showTimeline && (
-            <TimelineView videoRef={videoRef} scenes={project.scenes} duration={videoDuration} onSplit={handleSplit} onMerge={handleMerge} onSegmentClick={handleSegmentClick} onScenesUpdate={handleScenesUpdate} />
+            <TimelineView
+              videoRef={videoRef}
+              scenes={project.scenes}
+              duration={videoDuration}
+              onSplit={handleSplit}
+              onMerge={handleMerge}
+              onSegmentClick={handleSegmentClick}
+              onScenesUpdate={handleScenesUpdate}
+              onTimeUpdate={handleTimeUpdateFromTimeline}
+            />
           )}
 
           {(project.status === 'analyzing' || isReprocessing) && (

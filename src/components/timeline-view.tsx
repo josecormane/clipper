@@ -42,9 +42,10 @@ interface TimelineViewProps {
   onMerge: (sceneIds: number[]) => void;
   onSegmentClick: (startTime: string, endTime: string) => void;
   onScenesUpdate: (scenes: Scene[]) => void;
+  onTimeUpdate: (time: number) => void;
 }
 
-export function TimelineView({ videoRef, scenes, duration, onSplit, onMerge, onSegmentClick, onScenesUpdate }: TimelineViewProps) {
+export function TimelineView({ videoRef, scenes, duration, onSplit, onMerge, onSegmentClick, onScenesUpdate, onTimeUpdate }: TimelineViewProps) {
   const [currentTime, setCurrentTime] = useState(0);
   const [selectedScenes, setSelectedScenes] = useState<Set<number>>(new Set());
   const [dragging, setDragging] = useState<{ sceneId: number, handle: 'start' | 'end' } | null>(null);
@@ -70,6 +71,7 @@ export function TimelineView({ videoRef, scenes, duration, onSplit, onMerge, onS
 
     const timelineRect = timelineRef.current.getBoundingClientRect();
     const cursorTime = (e.clientX - timelineRect.left) / timelineRect.width * duration;
+    onTimeUpdate(cursorTime);
 
     setLocalScenes(currentLocalScenes => {
         const sceneIndex = currentLocalScenes.findIndex(s => s.id === dragging.sceneId);
@@ -110,7 +112,7 @@ export function TimelineView({ videoRef, scenes, duration, onSplit, onMerge, onS
         return newScenes;
     });
 
-  }, [dragging, duration]);
+  }, [dragging, duration, onTimeUpdate]);
 
   const handleMouseUp = useCallback(() => {
     if (dragging) {
