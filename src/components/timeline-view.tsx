@@ -54,19 +54,46 @@ export function TimelineView({ videoRef, scenes, duration, onSplit, onMerge, onS
   const [localScenes, setLocalScenes] = useState(scenes);
   const timelineRef = useRef<HTMLDivElement>(null);
   const scenesRef = useRef(scenes);
+  const animationFrameRef = useRef<number>();
 
   useEffect(() => {
     setLocalScenes(scenes);
     scenesRef.current = scenes;
   }, [scenes]);
 
+  const animate = useCallback(() => {
+    if (!videoRef.current) return;
+    setCurrentTime(videoRef.current.currentTime);
+    animationFrameRef.current = requestAnimationFrame(animate);
+  }, [videoRef]);
+
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-    const updateCurrentTime = () => setCurrentTime(video.currentTime);
-    video.addEventListener('timeupdate', updateCurrentTime);
-    return () => video.removeEventListener('timeupdate', updateCurrentTime);
-  }, [videoRef]);
+
+    const handlePlay = () => {
+      animationFrameRef.current = requestAnimationFrame(animate);
+    };
+    
+    const handlePause = () => {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+    };
+    
+    video.addEventListener('play', handlePlay);
+    video.addEventListener('pause', handlePause);
+    video.addEventListener('seeked', animate);
+
+    return () => {
+      video.removeEventListener('play', handlePlay);
+      video.removeEventListener('pause', handlePause);
+      video.removeEventListener('seeked', animate);
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+    };
+  }, [animate, videoRef]);
   
   const handleMouseDown = (sceneId: number, handle: 'start' | 'end') => {
     onDragStart();

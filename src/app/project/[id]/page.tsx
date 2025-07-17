@@ -52,7 +52,7 @@ export default function ProjectPage() {
   const router = useRouter();
   const { toast } = useToast();
   const videoRef = useRef<HTMLVideoElement>(null);
-  const stopPlaybackRef = useRef<(() => void) | null>(null);
+  const stopPlaybackRef = useRef<number | null>(null);
   const sceneCardRefs = useRef<{ [key: number]: HTMLDivElement | null }>({});
   const projectRef = useRef(project);
 
@@ -145,6 +145,34 @@ export default function ProjectPage() {
     };
   }, [carouselApi, isUserInteracting]);
 
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.target instanceof HTMLInputElement ||
+        event.target instanceof HTMLTextAreaElement
+      ) {
+        return;
+      }
+
+      if (event.code === 'Space') {
+        event.preventDefault();
+        if (videoRef.current) {
+          if (videoRef.current.paused) {
+            videoRef.current.play();
+          } else {
+            videoRef.current.pause();
+          }
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
+
   const handleAnalyzeClick = async () => {
     if (!project) return;
     setIsAnalyzing(true);
@@ -177,27 +205,29 @@ export default function ProjectPage() {
     if (!videoRef.current || !project) return;
 
     if (stopPlaybackRef.current) {
-      stopPlaybackRef.current();
+      cancelAnimationFrame(stopPlaybackRef.current);
     }
     
     const video = videoRef.current;
-    video.currentTime = timeStringToSeconds(startTime);
+    const startTimeInSeconds = timeStringToSeconds(startTime);
+    const endTimeInSeconds = timeStringToSeconds(endTime);
+    video.currentTime = startTimeInSeconds;
     video.play();
     
     const checkTime = () => {
-      if (video.currentTime >= timeStringToSeconds(endTime)) {
+      if (video.currentTime >= endTimeInSeconds) {
         video.pause();
-        stopPlaybackRef.current = null;
-        video.removeEventListener("timeupdate", checkTime);
+        video.currentTime = endTimeInSeconds;
+        if (stopPlaybackRef.current) {
+          cancelAnimationFrame(stopPlaybackRef.current);
+          stopPlaybackRef.current = null;
+        }
+      } else {
+        stopPlaybackRef.current = requestAnimationFrame(checkTime);
       }
     };
-
-    stopPlaybackRef.current = () => {
-      video.pause();
-      video.removeEventListener("timeupdate", checkTime);
-    };
-
-    video.addEventListener("timeupdate", checkTime);
+  
+    stopPlaybackRef.current = requestAnimationFrame(checkTime);
 
     const clickedSceneIndex = project.scenes.findIndex(
       (s) => s.startTime === startTime && s.endTime === endTime
