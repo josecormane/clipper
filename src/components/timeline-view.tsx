@@ -43,9 +43,11 @@ interface TimelineViewProps {
   onSegmentClick: (startTime: string, endTime: string) => void;
   onScenesUpdate: (scenes: Scene[]) => void;
   onTimeUpdate: (time: number) => void;
+  onDragStart: () => void;
+  onDragEnd: () => void;
 }
 
-export function TimelineView({ videoRef, scenes, duration, onSplit, onMerge, onSegmentClick, onScenesUpdate, onTimeUpdate }: TimelineViewProps) {
+export function TimelineView({ videoRef, scenes, duration, onSplit, onMerge, onSegmentClick, onScenesUpdate, onTimeUpdate, onDragStart, onDragEnd }: TimelineViewProps) {
   const [currentTime, setCurrentTime] = useState(0);
   const [selectedScenes, setSelectedScenes] = useState<Set<number>>(new Set());
   const [dragging, setDragging] = useState<{ sceneId: number, handle: 'start' | 'end' } | null>(null);
@@ -65,6 +67,11 @@ export function TimelineView({ videoRef, scenes, duration, onSplit, onMerge, onS
     video.addEventListener('timeupdate', updateCurrentTime);
     return () => video.removeEventListener('timeupdate', updateCurrentTime);
   }, [videoRef]);
+  
+  const handleMouseDown = (sceneId: number, handle: 'start' | 'end') => {
+    onDragStart();
+    setDragging({ sceneId, handle });
+  };
 
   const handleMouseMove = useCallback((e: MouseEvent) => {
     if (!dragging || !timelineRef.current) return;
@@ -124,8 +131,9 @@ export function TimelineView({ videoRef, scenes, duration, onSplit, onMerge, onS
       onScenesUpdate(changedScenes);
 
       setDragging(null);
+      onDragEnd();
     }
-  }, [dragging, onScenesUpdate, scenes]);
+  }, [dragging, onScenesUpdate, scenes, onDragEnd]);
   
   useEffect(() => {
     if (dragging) {
@@ -183,11 +191,11 @@ Click to play, CMD/CTRL+Click to select for merging`}
             >
                 <div
                     className="absolute left-0 top-0 h-full w-2 cursor-ew-resize bg-primary/50"
-                    onMouseDown={(e) => { e.stopPropagation(); setDragging({ sceneId: scene.id, handle: 'start' }); }}
+                    onMouseDown={(e) => { e.stopPropagation(); handleMouseDown(scene.id, 'start'); }}
                 />
                 <div
                     className="absolute right-0 top-0 h-full w-2 cursor-ew-resize bg-primary/50"
-                    onMouseDown={(e) => { e.stopPropagation(); setDragging({ sceneId: scene.id, handle: 'end' }); }}
+                    onMouseDown={(e) => { e.stopPropagation(); handleMouseDown(scene.id, 'end'); }}
                 />
             </div>
             );

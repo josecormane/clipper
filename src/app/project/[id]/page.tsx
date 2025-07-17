@@ -45,6 +45,7 @@ export default function ProjectPage() {
   const [carouselApi, setCarouselApi] = useState<CarouselApi>()
   const [isUserInteracting, setIsUserInteracting] = useState(false);
   const [targetSceneIndex, setTargetSceneIndex] = useState(0);
+  const [wasPlayingBeforeDrag, setWasPlayingBeforeDrag] = useState(false);
   
   const params = useParams();
   const projectId = params.id as string;
@@ -294,6 +295,20 @@ export default function ProjectPage() {
     }
   };
 
+  const handleDragStart = () => {
+    if (videoRef.current && !videoRef.current.paused) {
+      setWasPlayingBeforeDrag(true);
+      videoRef.current.pause();
+    }
+  };
+
+  const handleDragEnd = () => {
+    if (videoRef.current && wasPlayingBeforeDrag) {
+      videoRef.current.play();
+      setWasPlayingBeforeDrag(false);
+    }
+  };
+
   if (isLoading && !isReprocessing) return <div className="flex justify-center items-center h-screen"><Loader2 className="h-16 w-16 animate-spin" /></div>;
   if (!project) return null;
   
@@ -352,6 +367,8 @@ export default function ProjectPage() {
               onSegmentClick={handleSegmentClick}
               onScenesUpdate={handleScenesUpdate}
               onTimeUpdate={handleTimeUpdateFromTimeline}
+              onDragStart={handleDragStart}
+              onDragEnd={handleDragEnd}
             />
           )}
 
