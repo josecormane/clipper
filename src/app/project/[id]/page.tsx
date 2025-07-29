@@ -4,6 +4,7 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { getProject, updateProject, deleteProject, clipVideo, analyzeProject } from '@/lib/actions';
 import { useToast } from '@/hooks/use-toast';
+import { useApiConfig } from '@/hooks/use-api-config';
 import { Logo } from '@/components/logo';
 import { Button } from '@/components/ui/button';
 import { SceneCard } from '@/components/scene-card';
@@ -15,6 +16,7 @@ import { timeStringToSeconds, secondsToTimeString } from '@/lib/utils';
 import Link from 'next/link';
 import { Carousel, CarouselContent, CarouselItem } from '@/components/ui/carousel';
 import { ReprocessConfirmationModal } from '@/components/reprocess-confirmation-modal';
+import { ApiKeyRequired } from '@/components/api-key-required';
 
 type Scene = {
   id: number;
@@ -46,6 +48,7 @@ export default function ProjectPage() {
   const params = useParams();
   const router = useRouter();
   const { toast } = useToast();
+  const { config } = useApiConfig();
   const videoRef = useRef<HTMLVideoElement>(null);
   const stopPlaybackRef = useRef<(() => void) | null>(null);
 
@@ -84,9 +87,24 @@ export default function ProjectPage() {
 
   const handleAnalyzeClick = async () => {
     if (!project) return;
+    
+    // Verificar si hay API key configurada
+    if (!config.isConfigured) {
+      toast({ 
+        variant: 'destructive', 
+        title: 'API Key Required', 
+        description: 'Please configure your Gemini API key in the settings before analyzing videos.' 
+      });
+      return;
+    }
+    
     setIsAnalyzing(true);
     toast({ title: "Analysis Started", description: "This may take a few minutes." });
-    const { error } = await analyzeProject({ projectId, videoUrl: project.originalVideoUrl });
+    const { error } = await analyzeProject({ 
+      projectId, 
+      videoUrl: project.originalVideoUrl,
+      apiKey: config.apiKey
+    });
     if (error) {
       toast({ variant: 'destructive', title: 'Analysis Failed', description: error });
     }
@@ -95,6 +113,18 @@ export default function ProjectPage() {
   
   const handleReprocessConfirm = async () => {
     if (!project) return;
+    
+    // Verificar si hay API key configurada
+    if (!config.isConfigured) {
+      toast({ 
+        variant: 'destructive', 
+        title: 'API Key Required', 
+        description: 'Please configure your Gemini API key in the settings before reprocessing videos.' 
+      });
+      setIsReprocessModalOpen(false);
+      return;
+    }
+    
     setIsReprocessModalOpen(false);
     setIsReprocessing(true);
     setProject(p => p ? { ...p, scenes: [] } : null); // Clear scenes immediately
@@ -105,7 +135,11 @@ export default function ProjectPage() {
     await updateProject({ projectId, scenes: [] });
     
     // Trigger re-analysis
-    const { error } = await analyzeProject({ projectId, videoUrl: project.originalVideoUrl });
+    const { error } = await analyzeProject({ 
+      projectId, 
+      videoUrl: project.originalVideoUrl,
+      apiKey: config.apiKey
+    });
     if (error) {
       toast({ variant: 'destructive', title: 'Reprocessing Failed', description: error });
     }
@@ -249,13 +283,13 @@ export default function ProjectPage() {
             </div>
             <div className="flex items-center space-x-2">
               {project.status === 'uploaded' && (
-                <Button onClick={handleAnalyzeClick} disabled={isAnalyzing}>
+                <Button onClick={handleAnalyzeClick} disabled={isAnalyzing || !config.isConfigured}>
                   {isAnalyzing ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Wand2 className="mr-2 h-4 w-4"/>}
                   Analyze Project
                 </Button>
               )}
               {project.status === 'analyzed' && (
-                 <Button variant="outline" onClick={() => setIsReprocessModalOpen(true)} disabled={isReprocessing}>
+                 <Button variant="outline" onClick={() => setIsReprocessModalOpen(true)} disabled={isReprocessing || !config.isConfigured}>
                     {isReprocessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <RefreshCw className="mr-2"/>}
                     Reprocess
                 </Button>
@@ -286,6 +320,16 @@ export default function ProjectPage() {
                 {project.analysisError || "An unknown error occurred."}
               </AlertDescription>
             </Alert>
+          )}
+
+          {!config.isConfigured && (project.status === 'uploaded' || project.status === 'analyzed') && (
+            <div className="mt-6">
+              <ApiKeyRequired 
+                title="API Key Required for Video Analysis"
+                description="To analyze or reprocess videos, you need to configure your Gemini API key."
+                showConfigButton={true}
+              />
+            </div>
           )}
         </div>
       </main>

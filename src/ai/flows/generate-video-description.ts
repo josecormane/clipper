@@ -1,13 +1,11 @@
-'use server';
-
 /**
  * @fileOverview This file implements the video analysis workflow.
  * The process is designed to handle long videos by breaking them into manageable chunks,
  * analyzing each chunk individually, and then aggregating the results.
  */
 
-import {ai} from '@/ai/genkit';
-import {z} from 'genkit';
+import { tryGetDefaultAiInstance, hasValidDefaultApiKey } from '@/lib/gemini-config';
+import { z } from 'genkit';
 
 // Input schema for the video chunk processing task.
 const ProcessVideoChunkInputSchema = z.object({
@@ -41,12 +39,16 @@ For each shot in the 'scenes' array, provide:
 
 Do not create a "summary". Your entire response should be the JSON object.`;
 
-
 /**
- * A reusable prompt definition for analyzing a single video chunk.
+ * Function to get or create the prompt definition lazily
  */
-const videoChunkAnalysisPrompt = ai.definePrompt(
-  {
+function getVideoChunkAnalysisPrompt() {
+  const ai = tryGetDefaultAiInstance();
+  if (!ai) {
+    throw new Error('No valid Gemini API key configured. Please set up your API key in the settings.');
+  }
+  
+  return ai.definePrompt({
     name: 'videoChunkAnalysisPrompt',
     input: { schema: ProcessVideoChunkInputSchema },
     output: {
@@ -54,25 +56,42 @@ const videoChunkAnalysisPrompt = ai.definePrompt(
     },
     prompt: PROMPT_TEXT,
     config: { maxOutputTokens: 8192 },
-  }
-);
+  });
+}
+
 
 
 /**
- * A Genkit flow designed to analyze a single chunk of video.
+ * Direct function for server actions (no Proxy)
  */
-export const processVideoChunkFlow = ai.defineFlow(
-  {
-    name: 'processVideoChunkFlow',
-    inputSchema: ProcessVideoChunkInputSchema, 
-    outputSchema: z.object({ scenes: z.array(ShotSchema) }),
-  },
-  async (input) => {
-    console.log('=============== PROMPT SENT TO GEMINI FOR CHUNK ===============');
-    console.log(PROMPT_TEXT.substring(0, 500) + '...');
-    console.log('===========================================================');
-    
-    // Call the pre-defined prompt correctly.
+export async function processVideoChunkFlow(input: { videoDataUri: string }) {
+  'use server';
+  console.log('=============== PROMPT SENT TO GEMINI FOR CHUNK ===============');
+  console.log(PROMPT_TEXT.substring(0, 500) + '...');
+  console.log('===========================================================');
+  
+  try {
+    // Verificar si hay una API key válida antes de procesar
+    if (!hasValidDefaultApiKey()) {
+      throw new Error('No valid default Gemini API key configured. Please configure your API key or use the custom API endpoint.');
+    }
+
+    const ai = tryGetDefaultAiInstance();
+    if (!ai) {
+      throw new Error('No valid Gemini API key configured. Please set up your API key in the settings.');
+    }
+
+    // Crear el prompt directamente
+    const videoChunkAnalysisPrompt = ai.definePrompt({
+      name: 'videoChunkAnalysisPrompt',
+      input: { schema: ProcessVideoChunkInputSchema },
+      output: {
+        schema: z.object({ scenes: z.array(ShotSchema) }),
+      },
+      prompt: PROMPT_TEXT,
+      config: { maxOutputTokens: 8192 },
+    });
+
     const { output } = await videoChunkAnalysisPrompt(input);
 
     console.log(`=============== RESPONSE FROM GEMINI FOR CHUNK (Found ${output?.scenes.length || 0} scenes) ===============`);
@@ -83,5 +102,13 @@ export const processVideoChunkFlow = ai.defineFlow(
     }
     
     return output;
+  } catch (error) {
+    console.error('Error processing video chunk:', error);
+    
+    if (error instanceof Error && error.message.includes('API key')) {
+      throw new Error('No se pudo procesar el video. Por favor configura tu API key de Gemini en la configuración.');
+    }
+    
+    throw error;
   }
-);
+}

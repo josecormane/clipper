@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack -p 9002",
+    "dev": "next dev --turbopack -p 3000",
     "genkit:dev": "genkit start -- tsx src/ai/dev.ts",
     "genkit:watch": "genkit start -- tsx --watch src/ai/dev.ts",
     "build": "next build",
@@ -41,6 +41,7 @@
     "@tanstack/react-table": "^8.21.3",
     "@types/dotenv": "^6.1.1",
     "@types/file-saver": "^2.0.7",
+    "@types/uuid": "^10.0.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^3.6.0",
@@ -61,6 +62,7 @@
     "recharts": "^2.15.1",
     "tailwind-merge": "^3.0.1",
     "tailwindcss-animate": "^1.0.7",
+    "uuid": "^11.1.0",
     "zod": "^3.24.2"
   },
   "devDependencies": {

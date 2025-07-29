@@ -1,6 +1,6 @@
 'use server';
 
-import { processVideoChunkFlow } from '@/ai/flows/generate-video-description';
+import { processVideoChunkWithCustomApiFlow } from '@/ai/flows/generate-video-description-custom';
 import { db, storage } from '@/lib/firebase';
 import {
   addDoc,
@@ -143,8 +143,8 @@ export async function generateThumbnail(input: { videoPath: string, scene: any }
     }
 }
 
-export async function analyzeProject(input: { projectId: string; videoUrl: string }) {
-    const { projectId, videoUrl } = input;
+export async function analyzeProject(input: { projectId: string; videoUrl: string; apiKey?: string }) {
+    const { projectId, videoUrl, apiKey } = input;
     const projectRef = doc(db, 'projects', projectId);
     await updateDoc(projectRef, { status: 'analyzing', lastModified: new Date() });
     const tempId = `analysis-${Date.now()}`;
@@ -172,7 +172,13 @@ export async function analyzeProject(input: { projectId: string; videoUrl: strin
         });
         const chunkBuffer = await fs.promises.readFile(chunkOutputPath);
         const chunkDataUri = `data:video/mp4;base64,${chunkBuffer.toString('base64')}`;
-        const result = await processVideoChunkFlow({ videoDataUri: chunkDataUri });
+        
+        // Usar la función personalizada que acepta API key
+        const result = await processVideoChunkWithCustomApiFlow({ 
+          videoDataUri: chunkDataUri,
+          apiKey: apiKey
+        });
+        
         if (result && result.scenes) {
           const adjustedScenes: any[] = [];
           for (const scene of result.scenes) {

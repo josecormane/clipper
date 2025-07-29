@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { ThumbnailImage } from "@/components/thumbnail-image";
 import { useState, useEffect, RefObject } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -32,11 +33,11 @@ export function SceneCard({
   onPreview,
 }: SceneCardProps) {
   const [isUpdatingThumbnail, setIsUpdatingThumbnail] = useState(false);
-  const [currentThumbnail, setCurrentThumbnail] = useState(scene.thumbnail || "https://placehold.co/160x90.png");
+  const [currentThumbnail, setCurrentThumbnail] = useState(scene.thumbnail || "");
   const { toast } = useToast();
 
   useEffect(() => {
-    setCurrentThumbnail(scene.thumbnail || "https://placehold.co/160x90.png");
+    setCurrentThumbnail(scene.thumbnail || "");
   }, [scene.thumbnail]);
 
   const handleTimeChange = (field: "startTime" | "endTime", value: string) => {
@@ -88,13 +89,12 @@ export function SceneCard({
     <Card className="overflow-hidden bg-card/80 backdrop-blur-sm w-full">
       <div className="grid grid-cols-3 gap-4">
         <div className="col-span-1 relative group cursor-pointer" onClick={() => onPreview(scene)}>
-          <Image
+          <ThumbnailImage
             src={currentThumbnail}
             alt={`Scene ${scene.id}`}
             width={160}
             height={90}
-            className="object-cover w-full h-full"
-            unoptimized // Useful for external URLs like placehold.co and data URIs
+            className="w-full h-full"
           />
            <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
               <Play className="h-8 w-8 text-white" />
