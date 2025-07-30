@@ -134,3 +134,130 @@
 **Aplicación Completamente Funcional** en modo local con API BYO de Gemini integrada. Permite subida local de videos, análisis con Gemini, edición de escenas, descarga de clips, estadísticas detalladas y progreso en tiempo real.
 
 **Problemas Pendientes**: Errores persistentes de FFmpeg (code 234) para generación de thumbnails, aunque manejados elegantemente con placeholders.
+
+---
+
+## Sesión 2: Timeline Interactivo con Regeneración Automática de Thumbnails
+
+### Objetivos Principales
+- **Objetivo Primario**: Implementar regeneración automática de thumbnails cuando se cambia el tiempo de inicio de escenas en el timeline
+- **Objetivo Secundario**: Mejorar la experiencia de usuario con actualizaciones visuales inmediatas
+- **Objetivo Técnico**: Resolver problemas de path de video para generación de thumbnails
+
+### Problemas Identificados y Resueltos
+
+#### 1. Thumbnails No Se Actualizaban Tras Arrastre en Timeline
+**Problema**: Al arrastrar handles en el timeline y cambiar el tiempo de inicio de una escena, el thumbnail no se actualizaba para reflejar el nuevo frame.
+**Causa Raíz**: No había lógica para detectar cambios en `startTime` y regenerar thumbnails automáticamente.
+
+#### 2. Error de Path de Video Incorrecto
+**Problema**: `generateThumbnailLocal` fallaba con error "Failed to get video duration" al intentar regenerar thumbnails.
+**Causa Raíz**: Se estaba usando `project.videoPath` (URL del servidor) en lugar de `project.originalVideoPath` (path local del archivo).
+
+#### 3. React No Detectaba Cambios en Thumbnails
+**Problema**: Incluso cuando se generaban nuevos thumbnails, los componentes no se re-renderizaban visualmente.
+**Causa Raíz**: React no detectaba cambios en data URIs similares, necesitaba keys únicas para forzar re-render.
+
+### Soluciones Implementadas
+
+#### Fase 1: Detección Automática de Cambios en StartTime
+- **Lógica de Detección**: En `onScenesUpdate`, comparar `originalScene.startTime` vs `updatedScene.startTime`
+- **Identificación de Escenas**: Crear array `scenesToRegenerateThumbnails` con escenas que cambiaron tiempo de inicio
+- **Logs de Debug**: Implementar logging detallado para seguimiento del proceso
+
+#### Fase 2: Regeneración Paralela de Thumbnails
+- **Procesamiento Paralelo**: Usar `Promise.all()` para regenerar múltiples thumbnails simultáneamente
+- **Manejo de Errores**: Capturar errores individuales sin afectar otras regeneraciones
+- **Actualización Batch**: Actualizar todas las escenas con nuevos thumbnails de una vez
+
+#### Fase 3: Corrección de Path de Video
+- **Path Correcto**: Cambiar de `project.videoPath` a `project.originalVideoPath`
+- **Validación**: Asegurar que `generateThumbnailLocal` reciba el path local correcto del archivo
+- **Consistencia**: Usar el mismo path que utiliza `regenerateAllThumbnailsLocal`
+
+#### Fase 4: Forzar Re-render de Componentes
+- **Keys Únicas**: Agregar key dinámica a `ThumbnailImage` basada en `scene.id`, `scene.startTime` y `thumbnail.length`
+- **Estado Local**: Mejorar `useEffect` en `SceneCard` para detectar cambios en thumbnails
+- **Optimización**: Remover `Date.now()` de key para evitar re-renders innecesarios
+
+### Código Implementado
+
+#### Detección y Regeneración Automática
+```typescript
+// En onScenesUpdate del timeline
+const scenesToRegenerateThumbnails: any[] = [];
+
+updatedScenes.forEach(updatedScene => {
+  const originalScene = newScenes[index];
+  // Si cambió el tiempo de inicio, necesitamos regenerar el thumbnail
+  if (originalScene.startTime !== updatedScene.startTime) {
+    scenesToRegenerateThumbnails.push({ ...originalScene, ...updatedScene });
+  }
+});
+
+// Regenerar thumbnails en paralelo
+const thumbnailPromises = scenesToRegenerateThumbnails.map(async (scene) => {
+  const { generateThumbnailLocal } = await import('@/lib/local-actions');
+  const { thumbnail } = await generateThumbnailLocal({ 
+    videoPath: project.originalVideoPath, // ← Path correcto
+    scene: scene 
+  });
+  
+  if (thumbnail) {
+    return { sceneId: scene.id, thumbnail };
+  }
+  return null;
+});
+```
+
+#### Componente ThumbnailImage con Key Única
+```typescript
+<ThumbnailImage
+  key={`${scene.id}-${scene.startTime}-${currentThumbnail?.length || 0}`}
+  src={currentThumbnail}
+  alt={`Scene ${scene.id}`}
+  width={160}
+/>
+```
+
+### Archivos Modificados
+
+#### Core Timeline Logic
+- `src/app/local-project/[id]/page.tsx` - Lógica de regeneración automática en `onScenesUpdate`
+
+#### Componentes UI
+- `src/components/scene-card.tsx` - Key única para forzar re-render y estado mejorado
+
+### Resultados Medibles
+- **Regeneración Automática**: Thumbnails se actualizan automáticamente al cambiar tiempo de inicio en timeline
+- **Experiencia Fluida**: Cambios visuales inmediatos sin intervención manual del usuario
+- **Procesamiento Paralelo**: Múltiples thumbnails se regeneran simultáneamente para mejor performance
+- **Manejo Robusto**: Errores individuales no afectan la regeneración de otros thumbnails
+
+### Lecciones/Patrones Establecidos
+
+#### Patrón: Regeneración Automática Basada en Cambios de Estado
+**Establecido**: Detectar cambios específicos en propiedades críticas (`startTime`) y triggear regeneración automática de assets dependientes.
+**Razón**: Mejora UX eliminando pasos manuales y mantiene consistencia visual.
+
+#### Patrón: Procesamiento Paralelo de Assets
+**Establecido**: Usar `Promise.all()` para regenerar múltiples assets (thumbnails) simultáneamente.
+**Razón**: Mejora performance significativamente vs procesamiento secuencial.
+
+#### Patrón: Keys Dinámicas para Forzar Re-render
+**Establecido**: Usar keys que incluyan propiedades relevantes del estado para forzar re-render cuando React no detecta cambios.
+**Razón**: Especialmente útil con data URIs o contenido similar que React puede no detectar como cambio.
+
+#### Patrón: Validación de Paths para Operaciones de Archivo
+**Establecido**: Distinguir claramente entre URLs de servidor (`videoPath`) y paths locales (`originalVideoPath`) para operaciones FFmpeg.
+**Razón**: FFmpeg requiere acceso directo a archivos locales, no URLs de servidor.
+
+### Estado Final
+**Timeline Completamente Interactivo** con regeneración automática de thumbnails. Los usuarios pueden arrastrar handles para cambiar tiempos de escenas y ver inmediatamente los thumbnails actualizados reflejando el nuevo frame de inicio.
+
+**Funcionalidad Completa**: 
+- ✅ Detección automática de cambios en `startTime`
+- ✅ Regeneración paralela de thumbnails
+- ✅ Actualización visual inmediata
+- ✅ Manejo robusto de errores
+- ✅ Performance optimizada

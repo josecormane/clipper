@@ -61,13 +61,16 @@ local-storage/
 - Análisis automático con Gemini AI
 - Detección de escenas y cortes
 - Generación de descripciones
-- Thumbnails automáticos
+- Thumbnails automáticos con regeneración inteligente
+- Corrección automática de tiempos de Gemini (formato MM:SS:mmm)
 
 ### ✂️ **Edición de Escenas**
 - Dividir escenas en puntos específicos
 - Fusionar múltiples escenas
 - Editar descripciones de escenas
-- Vista de timeline interactiva
+- Vista de timeline interactiva con arrastre
+- **Regeneración automática de thumbnails** al cambiar tiempos de inicio
+- Preservación de gaps entre escenas durante edición
 
 ### 📥 **Exportación**
 - Descargar clips individuales
@@ -132,6 +135,8 @@ GOOGLE_GENAI_API_KEY=tu-api-key-aqui
 ### **Thumbnails no se generan**
 - Verifica que FFmpeg esté instalado correctamente
 - Los thumbnails fallan silenciosamente, el análisis continúa
+- **Regeneración automática**: Los thumbnails se actualizan automáticamente al cambiar tiempos en el timeline
+- Usa el botón "Fix Thumbnails" para regenerar todos los thumbnails manualmente
 
 ### **Videos no se reproducen**
 - Verifica que el formato sea compatible (MP4, MOV, AVI, etc.)

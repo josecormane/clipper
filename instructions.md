@@ -117,6 +117,7 @@ console.log('✅ Found 18 scenes');
 ### Filosofía: Resilient Error Handling
 **Principio**: Errores no críticos deben fallar silenciosamente con fallbacks elegantes.
 - Thumbnails que fallan → Placeholder con icono
+- Timeline drag → Regeneración automática de thumbnails
 - APIs no disponibles → Mensajes informativos
 - Configuración faltante → Guías de configuración
 
@@ -160,6 +161,13 @@ if (!fs.existsSync(videoPath)) {
 - Análisis continúa sin thumbnails
 - UI funciona sin API configurada (con mensajes)
 - Modo local independiente de modo cloud
+
+### Regla: Automatic Asset Regeneration
+**Establecido**: Assets dependientes (thumbnails) deben regenerarse automáticamente cuando cambian sus dependencias (startTime).
+- Timeline drag → Detección automática de cambios en startTime
+- Regeneración paralela de thumbnails afectados
+- Actualización visual inmediata sin intervención manual
+- Preservación de gaps entre escenas durante edición
 
 ## Patrones de Migración y Compatibilidad
 
