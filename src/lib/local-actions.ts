@@ -10,51 +10,66 @@ import path from 'path';
 // Helper functions - Gemini-specific time parser
 const timeStringToSeconds = (time: string): number => {
   try {
+    console.log(`🔍 Parsing time: "${time}"`);
+    
+    // Formato esperado: MM:SS.mmm
+    if (time.includes('.')) {
+      // Formato MM:SS.mmm (recomendado)
+      const [timePart, millisecondsPart] = time.split('.');
+      const [minutes, seconds] = timePart.split(':').map(part => parseInt(part, 10));
+      const milliseconds = parseInt(millisecondsPart.padEnd(3, '0').substring(0, 3), 10);
+      
+      const totalSeconds = minutes * 60 + seconds + milliseconds / 1000;
+      
+      console.log(`✅ Parsed MM:SS.mmm: ${time} = ${minutes}m ${seconds}s ${milliseconds}ms = ${totalSeconds}s`);
+      return totalSeconds;
+    }
+    
+    // Formato legacy: MM:SS:mmm (para compatibilidad)
     const parts = time.split(':');
     
     if (parts.length === 3) {
-      // Detectar si es formato Gemini (MM:SS:mmm) o formato estándar (HH:MM:SS.mmm)
       const firstPart = parseInt(parts[0], 10);
       const secondPart = parseInt(parts[1], 10);
-      const thirdPart = parseFloat(parts[2]);
+      const thirdPart = parseInt(parts[2], 10);
       
-      // Si el primer número es 00 y el segundo es también pequeño, probablemente es HH:MM:SS.mmm
-      if (firstPart === 0 && secondPart < 60 && thirdPart < 60) {
-        // Formato estándar: HH:MM:SS.mmm
+      // Detectar si es MM:SS:mmm o HH:MM:SS
+      if (firstPart < 60 && secondPart < 60 && thirdPart >= 100) {
+        // Formato MM:SS:mmm (minutos:segundos:milisegundos)
+        const minutes = firstPart;
+        const seconds = secondPart;
+        const milliseconds = thirdPart;
+        
+        const totalSeconds = minutes * 60 + seconds + milliseconds / 1000;
+        
+        console.log(`⚠️ Legacy MM:SS:mmm: ${time} = ${minutes}m ${seconds}s ${milliseconds}ms = ${totalSeconds}s`);
+        return totalSeconds;
+      } else {
+        // Formato HH:MM:SS
         const hours = firstPart;
         const minutes = secondPart;
         const seconds = thirdPart;
         
         const totalSeconds = hours * 3600 + minutes * 60 + seconds;
         
-        console.log(`🔍 Parsing HH:MM:SS time: ${time} = ${hours}h ${minutes}m ${seconds}s = ${totalSeconds}s`);
-        return totalSeconds;
-      } else {
-        // Formato Gemini: MM:SS:mmm (minutos:segundos:milisegundos)
-        const minutes = firstPart;
-        const seconds = secondPart;
-        const milliseconds = parseInt(parts[2], 10);
-        
-        const totalSeconds = minutes * 60 + seconds + milliseconds / 1000;
-        
-        console.log(`🔍 Parsing MM:SS:mmm time: ${time} = ${minutes}m ${seconds}s ${milliseconds}ms = ${totalSeconds}s`);
+        console.log(`⚠️ Legacy HH:MM:SS: ${time} = ${hours}h ${minutes}m ${seconds}s = ${totalSeconds}s`);
         return totalSeconds;
       }
     } else if (parts.length === 2) {
-      // Format: MM:SS.mmm (alternative format)
+      // Formato MM:SS
       const minutes = parseInt(parts[0], 10);
-      const seconds = parseFloat(parts[1]); // Esto maneja SS.mmm correctamente
+      const seconds = parseInt(parts[1], 10);
       
       const totalSeconds = minutes * 60 + seconds;
       
-      console.log(`🔍 Parsing MM:SS time: ${time} = ${minutes}m ${seconds}s = ${totalSeconds}s`);
+      console.log(`⚠️ Legacy MM:SS: ${time} = ${minutes}m ${seconds}s = ${totalSeconds}s`);
       return totalSeconds;
     } else {
-      console.warn(`🔍 Unknown time format: ${time}`);
+      console.warn(`❌ Unknown time format: ${time}`);
       return parseFloat(time) || 0;
     }
   } catch (error) {
-    console.error('Error parsing time string:', time, error);
+    console.error('❌ Error parsing time string:', time, error);
     return 0;
   }
 };
@@ -210,16 +225,79 @@ export async function analyzeProjectLocal(input: {
           
           // Log raw scenes from Gemini
           result.scenes.forEach((scene, idx) => {
-            console.log(`  Raw Scene ${idx + 1}: ${scene.startTime} - ${scene.endTime} | "${scene.description}"`);
+            if (scene && scene.startTime && scene.endTime && scene.description) {
+              console.log(`  Raw Scene ${idx + 1}: ${scene.startTime} - ${scene.endTime} | "${scene.description}"`);
+            } else {
+              console.log(`  Raw Scene ${idx + 1}: INVALID/EMPTY - ${JSON.stringify(scene)}`);
+            }
           });
           
           const adjustedScenes: any[] = [];
           console.log(`\n🔧 ADJUSTING SCENE TIMES (adding ${chunkStartTime}s offset):`);
           
-          for (const scene of result.scenes) {
+          // Función para validar formato de tiempo
+          const isValidTimeFormat = (timeStr: string): boolean => {
+            if (!timeStr || typeof timeStr !== 'string') return false;
+            
+            // Formato preferido: MM:SS.mmm
+            const dotFormat = /^\d{2}:\d{2}\.\d{3}$/;
+            if (dotFormat.test(timeStr)) return true;
+            
+            // Formato legacy: MM:SS:mmm
+            const colonFormat = /^\d{2}:\d{2}:\d{3}$/;
+            if (colonFormat.test(timeStr)) return true;
+            
+            // Formato simple: MM:SS
+            const simpleFormat = /^\d{2}:\d{2}$/;
+            if (simpleFormat.test(timeStr)) return true;
+            
+            return false;
+          };
+
+          // Filtrar escenas vacías o inválidas
+          const validScenes = result.scenes.filter(scene => {
+            if (!scene || typeof scene !== 'object') {
+              console.log(`❌ Invalid scene object: ${JSON.stringify(scene)}`);
+              return false;
+            }
+            
+            if (!scene.startTime || !scene.endTime || !scene.description) {
+              console.log(`❌ Missing required fields: ${JSON.stringify(scene)}`);
+              return false;
+            }
+            
+            if (!isValidTimeFormat(scene.startTime)) {
+              console.log(`❌ Invalid startTime format: "${scene.startTime}"`);
+              return false;
+            }
+            
+            if (!isValidTimeFormat(scene.endTime)) {
+              console.log(`❌ Invalid endTime format: "${scene.endTime}"`);
+              return false;
+            }
+            
+            return true;
+          });
+
+          console.log(`🔍 Filtered scenes: ${result.scenes.length} → ${validScenes.length} valid scenes`);
+
+          for (const scene of validScenes) {
             try {
               const rawStartSeconds = timeStringToSeconds(scene.startTime);
               const rawEndSeconds = timeStringToSeconds(scene.endTime);
+              
+              // Validar que los tiempos sean números válidos
+              if (isNaN(rawStartSeconds) || isNaN(rawEndSeconds)) {
+                console.log(`⚠️ Skipping scene with invalid time: ${scene.startTime} - ${scene.endTime}`);
+                continue;
+              }
+              
+              // Validar que el tiempo de fin sea mayor que el de inicio
+              if (rawEndSeconds <= rawStartSeconds) {
+                console.log(`⚠️ Skipping scene with invalid time range: ${scene.startTime} - ${scene.endTime}`);
+                continue;
+              }
+              
               const sceneStartSeconds = rawStartSeconds + chunkStartTime;
               const sceneEndSeconds = rawEndSeconds + chunkStartTime;
               
@@ -633,5 +711,366 @@ export async function getStorageStatsLocal() {
     return { stats };
   } catch (e: any) {
     return { error: `Failed to get storage stats: ${e.message}` };
+  }
+}// YouT
+// YouTube Download Server Actions
+
+export async function getYouTubeVideoInfoLocal(input: { url: string }) {
+  const { url } = input;
+  
+  try {
+    console.log(`🔍 Getting YouTube video info: ${url}`);
+    
+    // Importar dinámicamente para evitar problemas de SSR
+    const { RobustDownloader, YouTubeDownloaderInit } = await import('@/lib/youtube-downloader');
+    
+    // Inicializar sistema si es necesario
+    await YouTubeDownloaderInit.initialize();
+    
+    // Verificar si ya existe un proyecto con esta URL
+    const duplicateCheck = localStorage.checkYouTubeDuplicate(url);
+    if (duplicateCheck.isDuplicate) {
+      return { 
+        error: 'Video already exists in your library',
+        existingProject: duplicateCheck.existingProject
+      };
+    }
+    
+    // Obtener información del video
+    const { videoInfo, stats } = await RobustDownloader.getVideoInfoRobust(url, {
+      enableUserAgentRotation: true,
+      enableRandomDelays: true,
+      customRetryOptions: {
+        maxRetries: 2,
+        baseDelay: 1000
+      }
+    });
+    
+    // Obtener opciones de calidad
+    const { YtDlpWrapper } = await import('@/lib/youtube-downloader');
+    const qualityOptions = YtDlpWrapper.getQualityOptions(videoInfo);
+    
+    console.log(`✅ Video info retrieved: ${videoInfo.title}`);
+    console.log(`📊 Stats: ${stats.totalAttempts} attempts, ${stats.totalTime}ms`);
+    
+    return { 
+      videoInfo,
+      qualityOptions,
+      stats
+    };
+    
+  } catch (e: any) {
+    console.error(`❌ Failed to get YouTube video info: ${e.message}`);
+    return { error: `Failed to get video information: ${e.message}` };
+  }
+}
+
+export async function downloadYouTubeVideoLocal(input: { 
+  url: string;
+  quality?: 'highest' | 'high' | 'medium' | 'low';
+  format?: string;
+  maxFileSize?: number;
+}) {
+  const { url, quality = 'medium', format, maxFileSize } = input;
+  const sessionId = `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  
+  try {
+    console.log(`📥 Starting YouTube download: ${url}`);
+    console.log(`🎥 Quality: ${quality}, Format: ${format || 'auto'}`);
+    
+    // Importar dinámicamente
+    const { 
+      DownloadManager, 
+      YouTubeDownloaderInit, 
+      CleanupService,
+      RobustDownloader 
+    } = await import('@/lib/youtube-downloader');
+    
+    const { debugLogger } = await import('@/lib/youtube-downloader/debug-logger');
+    
+    // Log inicio de descarga
+    debugLogger.info('ServerAction', 'Starting YouTube download', {
+      url,
+      quality,
+      format,
+      maxFileSize
+    }, sessionId, url);
+    
+    // Inicializar sistema
+    await YouTubeDownloaderInit.initialize();
+    CleanupService.start();
+    
+    // Verificar duplicados nuevamente
+    const duplicateCheck = localStorage.checkYouTubeDuplicate(url);
+    if (duplicateCheck.isDuplicate) {
+      debugLogger.warn('ServerAction', 'Duplicate video detected', {
+        existingProject: duplicateCheck.existingProject
+      }, sessionId, url);
+      
+      return { 
+        error: 'Video already exists in your library',
+        existingProject: duplicateCheck.existingProject
+      };
+    }
+    
+    // Obtener información del video primero con estrategias robustas
+    debugLogger.info('ServerAction', 'Getting video info with robust strategies', {}, sessionId, url);
+    const { videoInfo, stats } = await RobustDownloader.getVideoInfoRobust(url);
+    
+    debugLogger.info('ServerAction', 'Video info obtained successfully', {
+      title: videoInfo.title,
+      uploader: videoInfo.uploader,
+      duration: videoInfo.duration,
+      stats
+    }, sessionId, url);
+    
+    // Crear sesión de descarga
+    const downloadManager = DownloadManager.getInstance();
+    const actualSessionId = await downloadManager.startDownload(url, {
+      quality,
+      format,
+      maxFileSize: maxFileSize || 100 * 1024 * 1024 // 100MB por defecto
+    });
+    
+    console.log(`🎬 Download session created: ${actualSessionId}`);
+    console.log(`📝 Video: ${videoInfo.title} by ${videoInfo.uploader}`);
+    
+    debugLogger.info('ServerAction', 'Download session created successfully', {
+      sessionId: actualSessionId,
+      videoTitle: videoInfo.title,
+      uploader: videoInfo.uploader
+    }, actualSessionId, url);
+    
+    return { 
+      sessionId: actualSessionId,
+      videoInfo: {
+        title: videoInfo.title,
+        uploader: videoInfo.uploader,
+        duration: videoInfo.duration,
+        thumbnail: videoInfo.thumbnail
+      }
+    };
+    
+  } catch (e: any) {
+    console.error(`❌ Failed to start YouTube download: ${e.message}`);
+    
+    // Log error detallado
+    try {
+      const { debugLogger } = await import('@/lib/youtube-downloader/debug-logger');
+      debugLogger.error('ServerAction', 'Failed to start YouTube download', e, {
+        url,
+        quality,
+        format,
+        maxFileSize
+      }, sessionId, url);
+    } catch (logError) {
+      console.error('Failed to log error:', logError);
+    }
+    
+    return { error: `Failed to start download: ${e.message}` };
+  }
+}
+
+export async function getYouTubeDownloadStatusLocal(input: { sessionId: string }) {
+  const { sessionId } = input;
+  
+  try {
+    const { DownloadManager } = await import('@/lib/youtube-downloader');
+    
+    const downloadManager = DownloadManager.getInstance();
+    const session = downloadManager.getDownloadStatus(sessionId);
+    
+    if (!session) {
+      return { error: 'Download session not found' };
+    }
+    
+    return { 
+      session: {
+        id: session.id,
+        url: session.url,
+        status: session.status,
+        progress: session.progress,
+        error: session.error,
+        projectId: session.projectId,
+        startTime: session.startTime,
+        endTime: session.endTime
+      }
+    };
+    
+  } catch (e: any) {
+    return { error: `Failed to get download status: ${e.message}` };
+  }
+}
+
+export async function cancelYouTubeDownloadLocal(input: { sessionId: string }) {
+  const { sessionId } = input;
+  
+  try {
+    console.log(`❌ Cancelling YouTube download: ${sessionId}`);
+    
+    const { DownloadManager } = await import('@/lib/youtube-downloader');
+    
+    const downloadManager = DownloadManager.getInstance();
+    await downloadManager.cancelDownload(sessionId);
+    
+    console.log(`✅ Download cancelled: ${sessionId}`);
+    
+    return { success: true };
+    
+  } catch (e: any) {
+    console.error(`❌ Failed to cancel download: ${e.message}`);
+    return { error: `Failed to cancel download: ${e.message}` };
+  }
+}
+
+export async function processYouTubeDownloadLocal(input: { sessionId: string }) {
+  const { sessionId } = input;
+  
+  try {
+    const { 
+      DownloadManager, 
+      RobustDownloader,
+      YOUTUBE_DOWNLOADER_CONFIG 
+    } = await import('@/lib/youtube-downloader');
+    
+    const downloadManager = DownloadManager.getInstance();
+    const session = downloadManager.getDownloadStatus(sessionId);
+    
+    if (!session) {
+      return { error: 'Download session not found' };
+    }
+    
+    if (session.status !== 'downloading') {
+      return { error: `Cannot process download in status: ${session.status}` };
+    }
+    
+    console.log(`🚀 Processing YouTube download: ${sessionId}`);
+    
+    // Realizar la descarga robusta
+    const { filePath, stats } = await RobustDownloader.downloadVideoRobust(
+      session.url,
+      session.outputPath!,
+      session.options,
+      (progress) => {
+        // Actualizar progreso en el manager
+        downloadManager.updateProgress(sessionId, progress);
+      },
+      sessionId
+    );
+    
+    // Obtener información del video para crear el proyecto
+    const { videoInfo } = await RobustDownloader.getVideoInfoRobust(session.url);
+    
+    // Crear metadatos de YouTube
+    const youtubeMetadata: localStorage.YouTubeMetadata = {
+      videoId: videoInfo.id,
+      uploader: videoInfo.uploader,
+      uploaderUrl: videoInfo.uploader_id ? `https://www.youtube.com/channel/${videoInfo.uploader_id}` : undefined,
+      uploadDate: videoInfo.upload_date,
+      originalTitle: videoInfo.title,
+      viewCount: videoInfo.view_count,
+      likeCount: videoInfo.like_count,
+      description: videoInfo.description,
+      thumbnailUrl: videoInfo.thumbnail,
+      downloadedFormat: session.options.format || 'mp4',
+      downloadedQuality: session.options.quality || 'medium'
+    };
+    
+    // Crear proyecto en el almacenamiento local
+    const project = localStorage.createYouTubeProject({
+      name: videoInfo.title,
+      videoFilePath: filePath,
+      duration: videoInfo.duration,
+      sourceUrl: session.url,
+      youtubeMetadata
+    });
+    
+    // Marcar descarga como completada
+    downloadManager.completeDownload(sessionId, project.originalVideoPath, project.id);
+    
+    console.log(`✅ YouTube download processed successfully`);
+    console.log(`📊 Download stats: ${stats.totalAttempts} attempts, ${stats.totalTime}ms`);
+    console.log(`🎬 Project created: ${project.id}`);
+    
+    return { 
+      success: true,
+      projectId: project.id,
+      project: {
+        id: project.id,
+        name: project.name,
+        duration: project.duration,
+        source: project.source,
+        youtubeMetadata: project.youtubeMetadata
+      },
+      stats
+    };
+    
+  } catch (e: any) {
+    console.error(`❌ Failed to process YouTube download: ${e.message}`);
+    
+    // Marcar descarga como fallida
+    try {
+      const { DownloadManager } = await import('@/lib/youtube-downloader');
+      const downloadManager = DownloadManager.getInstance();
+      downloadManager.failDownload(sessionId, e.message);
+    } catch (managerError) {
+      console.error('Failed to update download manager:', managerError);
+    }
+    
+    return { error: `Failed to process download: ${e.message}` };
+  }
+}
+
+export async function getAllYouTubeProjectsLocal() {
+  try {
+    const youtubeProjects = localStorage.getYouTubeProjects();
+    return { projects: youtubeProjects };
+  } catch (e: any) {
+    return { error: `Failed to fetch YouTube projects: ${e.message}` };
+  }
+}
+
+export async function getYouTubeDownloadStatsLocal() {
+  try {
+    const { DownloadManager } = await import('@/lib/youtube-downloader');
+    
+    const downloadManager = DownloadManager.getInstance();
+    const stats = downloadManager.getStats();
+    const activeSessions = downloadManager.getAllActiveSessions();
+    
+    return { 
+      stats,
+      activeSessions: activeSessions.map(session => ({
+        id: session.id,
+        url: session.url,
+        status: session.status,
+        progress: session.progress,
+        startTime: session.startTime
+      }))
+    };
+    
+  } catch (e: any) {
+    return { error: `Failed to get download stats: ${e.message}` };
+  }
+}
+
+export async function cleanupYouTubeDownloadsLocal() {
+  try {
+    console.log('🧹 Running YouTube downloads cleanup...');
+    
+    const { CleanupService } = await import('@/lib/youtube-downloader');
+    
+    const result = await CleanupService.cleanup();
+    
+    console.log(`✅ Cleanup completed: ${result.tempFilesRemoved} files, ${result.tempDirsRemoved} dirs removed`);
+    
+    return { 
+      success: true,
+      result
+    };
+    
+  } catch (e: any) {
+    console.error(`❌ Failed to cleanup downloads: ${e.message}`);
+    return { error: `Failed to cleanup: ${e.message}` };
   }
 }

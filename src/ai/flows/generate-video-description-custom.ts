@@ -21,8 +21,8 @@ const ProcessVideoChunkInputSchema = z.object({
 
 // Schema for a single, granular visual shot (a "scene" in our UI).
 const ShotSchema = z.object({
-  startTime: z.string().describe('The start time of the visual shot in HH:MM:SS.mmm format.'),
-  endTime: z.string().describe('The end time of the visual shot in HH:MM:SS.mmm format.'),
+  startTime: z.string().describe('The start time of the visual shot in MM:SS.mmm format (e.g., "01:30.250").'),
+  endTime: z.string().describe('The end time of the visual shot in MM:SS.mmm format (e.g., "01:35.750").'),
   description: z.string().describe('A very brief, telegraphic-style description of the visual content (e.g., "man at computer," "robots playing soccer").'),
 });
 
@@ -36,18 +36,23 @@ Format your response as a JSON object with a single key: "scenes".
 The "scenes" key must contain an array of all the visual shots you identified in this chunk, in chronological order.
 
 For each shot in the 'scenes' array, provide:
-- \`startTime\` and \`endTime\` in precise \`MM:SS:mmm\` format, where MM is minutes, SS is seconds, and mmm is milliseconds (000-999), relative to the start of THIS CHUNK.
+- \`startTime\` and \`endTime\` in precise \`MM:SS.mmm\` format, where MM is minutes, SS is seconds, and mmm is milliseconds (000-999), relative to the start of THIS CHUNK.
 - A very brief, telegraphic-style description of the visual content (e.g., "man at computer," "robots playing soccer," "close-up on screen"). Use as few words as possible.
 
-CRITICAL: Time format must be MM:SS:mmm where:
+CRITICAL: Time format must be MM:SS.mmm (note the DOT before milliseconds) where:
 - MM = minutes (00-59)
 - SS = seconds (00-59) 
 - mmm = milliseconds (000-999)
 
 Examples of correct time format:
-- "00:00:000" = start of chunk
-- "00:05:500" = 5.5 seconds into chunk
-- "01:30:250" = 1 minute 30.25 seconds into chunk
+- "00:00.000" = start of chunk
+- "00:05.500" = 5.5 seconds into chunk
+- "01:30.250" = 1 minute 30.25 seconds into chunk
+
+WRONG formats to avoid:
+- "00:01:300" (uses colon instead of dot)
+- "1:30.25" (missing leading zero)
+- "90.500" (exceeds 59 seconds)
 
 Do not create a "summary". Your entire response should be the JSON object.`;
 

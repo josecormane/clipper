@@ -1,53 +1,87 @@
-# Logs
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-lerna-debug.log*
-.pnpm-debug.log*
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
-# Diagnostic reports (https://nodejs.org/api/report.html)
-.report/
+# dependencies
+/node_modules
+/.pnp
+.pnp.js
 
-# Node.js
-node_modules/
-dist/
-dist-dev/
-build/
-*.local
-.env
-.env.local
-.env.development.local
-.env.production.local
+# testing
+/coverage
 
-# Next.js
-.next/
-out/
-.vercel/
-!.vercel/build-output/
-.turbo/
+# next.js
+/.next/
+/out/
 
-# Runtime data
-pids
-*.pid
-*.seed
-*.crt
-*.key
-*.pem
-
-# Directory for `.nix-shell`
-.nix-shell/
+# production
+/build
 
 # misc
 .DS_Store
-*.tgz
-*.sass-cache
+*.pem
 
-# Firebase & Google Cloud
-service-account-key.json
-firestore-debug.log
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# TypeScript
+# local env files
+.env*.local
+
+# vercel
+.vercel
+
+# typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Local storage and media files (too large for git)
+local-storage/videos/
+local-storage/clips/
+local-storage/thumbnails/
+temp/
+temp-test/
+downloads/
+
+# Video and media files
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.webm
+*.flv
+*.wmv
+*.m4v
+*.3gp
+*.ogv
+
+# Audio files
+*.mp3
+*.wav
+*.flac
+*.aac
+*.ogg
+*.wma
+*.m4a
+
+# Image files (large ones)
+*.psd
+*.ai
+*.eps
+*.tiff
+*.tif
+*.bmp
+*.raw
+
+# Temporary media processing files
+*.tmp
+*.temp
+*_temp.*
+*_tmp.*
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Logs
+*.log
